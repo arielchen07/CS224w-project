@@ -6,10 +6,10 @@ from mapUtil import (
 from searchUtil import SearchProblem, State
 import random
 
-def generateRandomPath(cityMap):
+def generateRandomPath(cityMap, minWayPoints=2, maxWayPoints=3):
     all_nodes = list(cityMap.tags.keys())
     startLocation = random.choice(all_nodes)
-    random_idx = random.sample(range(0, len(cityMap.tags)), random.randint(2, 3))
+    random_idx = random.sample(range(0, len(cityMap.tags)), random.randint(minWayPoints, maxWayPoints))
     waypointTags = [cityMap.tags[all_nodes[idx]][0] for idx in random_idx]
     endLocation = random.choice(all_nodes)
     endTag = cityMap.tags[endLocation][0]
@@ -57,8 +57,3 @@ class WaypointsShortestPathProblem(SearchProblem):
             nextState = State(location=nextLocation, memory=nextMemory)
             result.append((nextLocation, nextState, cost))
         return result
-
-def getStanfordWaypointsShortestPathProblem() -> WaypointsShortestPathProblem:
-    cityMap = createMap("stanford.pbf")
-    startLocation, waypointTags, endTag = generateRandomPath(cityMap)
-    return WaypointsShortestPathProblem(startLocation, tuple(sorted(waypointTags)), str(endTag), cityMap)

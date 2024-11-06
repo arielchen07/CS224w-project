@@ -4,9 +4,14 @@ import searchUtil
 from mapUtil import (
     CityMap,
     createStanfordMap,
-    getTotalCost
+    getTotalCost,
+    createMap
 )
-import search
+from search import (
+    generateRandomPath,
+    WaypointsShortestPathProblem
+)
+
 
 def extractPath(startLocation: str, search: searchUtil.SearchAlgorithm) -> List[str]:
     return [startLocation] + search.actions
@@ -23,12 +28,10 @@ def printPath(
         for tag in cityMap.tags[location]:
             if tag in waypointTags:
                 doneWaypointTags.add(tag)
-        tagsStr = " ".join(cityMap.tags[location])
-        doneTagsStr = " ".join(sorted(doneWaypointTags))
-        print(f"Location {location} tags:[{tagsStr}]; done:[{doneTagsStr}]")
-    print(path)
-    exit()
-    print(f"Total distance: {getTotalCost(path, cityMap)}")
+        # tagsStr = " ".join(cityMap.tags[location])
+        # doneTagsStr = " ".join(sorted(doneWaypointTags))
+        # print(f"Location {location} tags:[{tagsStr}]; done:[{doneTagsStr}]")
+    # print(f"Total distance: {getTotalCost(path, cityMap)}")
     if outPath is not None:
         with open(outPath, "w") as f:
             data = {"waypointTags": waypointTags, "path": path}
@@ -41,7 +44,10 @@ stanfordMap = createStanfordMap()
 
 def calculatePath():
     """Given custom WaypointsShortestPathProblem, find the minimun path and prepare visualization."""
-    problem = search.getStanfordWaypointsShortestPathProblem()
+    cityMap = createMap("stanford.pbf")
+    startLocation, waypointTags, endTag = generateRandomPath(cityMap, minWayPoints=2, maxWayPoints=3)
+    problem = WaypointsShortestPathProblem(startLocation, tuple(sorted(waypointTags)), str(endTag), cityMap)
+
     ucs = searchUtil.UniformCostSearch(verbose=0)
     ucs.solve(problem)
     path = extractPath(problem.startLocation, ucs)
