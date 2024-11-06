@@ -38,10 +38,6 @@ def printPath(
             json.dump(data, f, indent=2)
 
 
-# Load Map
-stanfordMap = createStanfordMap()
-
-
 def calculatePath():
     """Given custom WaypointsShortestPathProblem, find the minimun path and prepare visualization."""
     cityMap = createMap("stanford.pbf")
@@ -51,7 +47,7 @@ def calculatePath():
     ucs = searchUtil.UniformCostSearch(verbose=0)
     ucs.solve(problem)
     path = extractPath(problem.startLocation, ucs)
-    printPath(path=path, waypointTags=problem.waypointTags, cityMap=stanfordMap)
+    printPath(path=path, waypointTags=problem.waypointTags, cityMap=cityMap)
 
 if __name__ == "__main__":
     calculatePath()
