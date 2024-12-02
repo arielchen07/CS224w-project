@@ -1,3 +1,4 @@
 osmium
+tqdm
 torch
 torch_geometric
