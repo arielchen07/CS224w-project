@@ -20,6 +20,7 @@ from math import radians, cos
 import torch
 import random
 import numpy as np
+# from torch_sparse import SparseTensor
 
 # Set the random seed for reproducibility
 seed = 42  # Replace with your desired seed
@@ -80,7 +81,8 @@ def construct_graph(osmPath: str):
             self.edge_dict = {}
 
         def node(self, n: osmium.osm.Node) -> None:
-            if len(self.nodes) < 100:
+            # if len(self.nodes) < 1000:
+            if True:
                 xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
                 self.nodes.append([xy[0], xy[1]])
                 self.node_id_to_idx[n.id] = self.id_counter
@@ -286,6 +288,29 @@ class GTN(torch.nn.Module):
         adj_scores = self.adj_decoder(edge_features).view(num_nodes, num_nodes)  # Reshape to adjacency matrix size
         return torch.sigmoid(adj_scores)
 
+def normalize_edge_attr(edge_attr, a=0.0, b=1.0):
+    """
+    Normalize edge attributes to the range [a, b].
+    
+    Args:
+        edge_attr (torch.Tensor): Edge attributes tensor.
+        a (float): Minimum value of the normalized range (default: 0.0).
+        b (float): Maximum value of the normalized range (default: 1.0).
+    
+    Returns:
+        torch.Tensor: Normalized edge attributes.
+    """
+    min_val = edge_attr.min()
+    max_val = edge_attr.max()
+
+    if max_val == min_val:
+        # All edge_attr values are identical
+        return torch.full_like(edge_attr, (a + b) / 2)  # Set to the midpoint of the range
+
+    # Min-max normalization to range [a, b]
+    normalized_edge_attr = a + (edge_attr - min_val) * (b - a) / (max_val - min_val)
+    return normalized_edge_attr
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 graph_path = "data/stanford.pbf"
@@ -294,48 +319,74 @@ graph.x = graph.x.to(device)
 graph.edge_index = graph.edge_index.to(device)
 graph.edge_attr = graph.edge_attr.to(device)
 
+graph.edge_attr = normalize_edge_attr(graph.edge_attr)
+
 adj_matrix = torch.zeros((len(graph.x), len(graph.x)), dtype=torch.float32).to(device)
 adj_matrix[graph.edge_index[0], graph.edge_index[1]] = 1.0
 
-model = GTN(input_dim=2, hidden_dim=1024, output_dim=1024, num_layers=5, dropout=0.1, beta=True, heads=1)
+model = GTN(input_dim=2, hidden_dim=4096, output_dim=4096, num_layers=5, dropout=0.1, beta=True, heads=1)
 model = model.to(device)
 
-optimizer = optim.Adam(model.parameters(), lr=0.0005)
+def initialize_weights(module):
+    if isinstance(module, torch.nn.Linear):
+        torch.nn.init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            torch.nn.init.zeros_(module.bias)
+
+model.apply(initialize_weights)
+
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
 epochs = 1000
+
+batch_size = 64  # Adjust based on available memory
+dataloader = NeighborLoader(
+    data=graph,  # Your large graph
+    num_neighbors=[10, 10],  # Number of neighbors to sample at each layer
+    batch_size=batch_size,  # Number of root nodes per batch
+    shuffle=True,  # Shuffle the data
+)
 
 for epoch in range(epochs):
     model.train()
     epoch_loss = 0
 
-    optimizer.zero_grad()
+    for idx, batch in enumerate(dataloader):
 
-    node_embeddings = model(graph.x, graph.edge_index, graph.edge_attr)
+        batch = batch.to(device)
 
-    # Reconstruct edge attributes
-    predicted_edge_attrs = model.reconstruct_edge_attrs(node_embeddings, graph.edge_index)
-    
-    # Reconstruct adjacency matrix
-    predicted_adj = model.reconstruct_adj_matrix(node_embeddings)
+        optimizer.zero_grad()
+        node_embeddings = model(batch.x, batch.edge_index, batch.edge_attr)
 
-    # Loss for edge attribute reconstruction (MSE loss)
-    edge_attr_loss = F.mse_loss(predicted_edge_attrs, graph.edge_attr)
-    
-    # Loss for adjacency matrix reconstruction (Binary Cross-Entropy loss)
-    adj_loss = F.binary_cross_entropy(predicted_adj, adj_matrix)
+        # Reconstruct edge attributes
+        predicted_edge_attrs = model.reconstruct_edge_attrs(node_embeddings, batch.edge_index)
 
-    if epoch % 2 == 0:
-        loss = edge_attr_loss
-    else:
-        loss = adj_loss
+        # Reconstruct adjacency matrix
+        predicted_adj = model.reconstruct_adj_matrix(node_embeddings)
 
-    # Backward pass and optimization
-    loss.backward()
-    optimizer.step()
+        # Generate ground truth adjacency matrix for the batch
+        batch_adj_matrix = torch.zeros((len(batch.x), len(batch.x)), dtype=torch.float32).to(device)
+        batch_adj_matrix[batch.edge_index[0], batch.edge_index[1]] = 1.0
+
+        if len(predicted_edge_attrs) > 0:
+            edge_attr_loss = F.mse_loss(predicted_edge_attrs, batch.edge_attr)
+        else:
+            edge_attr_loss = 0
+
+        adj_loss = F.binary_cross_entropy(predicted_adj, batch_adj_matrix)
+
+        loss = edge_attr_loss + adj_loss
+        loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+        optimizer.step()
+
+        epoch_loss += loss.item()
 
     # Print training progress
-    print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}, "
-            f"Edge Attr Loss: {edge_attr_loss.item():.4f}, Adj Loss: {adj_loss.item():.4f}")
+    print(f"Epoch {epoch+1}/{epochs} "
+            f"Loss: {epoch_loss:.4f}")
 
 
 # class NodeTransformer(nn.Module):
