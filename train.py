@@ -14,6 +14,21 @@ import torch.nn.functional as F
 import torch.nn as nn
 import networkx as nx
 
+import torch
+import random
+import numpy as np
+
+# Set the random seed for reproducibility
+seed = 42  # Replace with your desired seed
+torch.manual_seed(seed)
+random.seed(seed)
+np.random.seed(seed)
+
+# Enable deterministic mode
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
 R = 6371000  
 
 from math import radians, cos
@@ -211,6 +226,7 @@ class GTN(torch.nn.Module):
         self.norms = torch.nn.ModuleList(norm_layers)
 
         self.dropout = dropout
+        self.reset_parameters()
 
     def reset_parameters(self):
         """Resets parameters for the convolutional and normalization layers."""
@@ -245,8 +261,8 @@ class NodeTransformer(nn.Module):
         self.embed_dim = embed_dim
         
         # Learnable special embeddings for fixed start and end node
-        self.start_node_embed_tag = nn.Parameter(torch.randn(1, 1, 1), requires_grad=False)
-        self.end_node_embed_tag = nn.Parameter(torch.randn(1, 1, 1), requires_grad=False)
+        self.start_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=True)
+        self.end_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=True)
         
         # Transformer encoder layers
         self.encoder_layers = nn.ModuleList([
@@ -283,8 +299,8 @@ class NodeTransformer(nn.Module):
         assert embed_dim == self.embed_dim, f"Embedding dimension mismatch: {embed_dim} != {self.embed_dim}"
 
         # Add learnable tags to fixed nodes
-        start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
-        end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        # start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        # end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
 
         # Concatenate fixed nodes with the variable-length sequence
         fixed_nodes = torch.cat([start_node_embed, end_node_embed], dim=1)  # Shape: (batch_size, 2, embed_dim)
@@ -293,12 +309,11 @@ class NodeTransformer(nn.Module):
         # Pass through the Transformer encoder layers
         x = full_sequence
 
-        # for layer in self.encoder_layers:
-        #     x = layer(x)
+        for layer in self.encoder_layers:
+            x = layer(x)
         
-        # # Apply LayerNorm
-        # x = self.norm(x)
-
+        # Apply LayerNorm
+        x = self.norm(x)
 
         x = self.linear(x)
         x = F.relu(x)
@@ -324,35 +339,72 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        embed_dim = 128
+        embed_dim = 1024
 
-        self.gtn = GTN(input_dim=2, hidden_dim=10, output_dim=embed_dim, num_layers=2, dropout=0.1, beta=True, heads=1)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=1, ff_dim=1024)
-    
+        self.gtn = GTN(input_dim=2, hidden_dim=10, output_dim=embed_dim, num_layers=2, dropout=0, beta=True, heads=1)
+        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
+
+        def init_weights(m):
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+                if m.bias is not None:
+                    torch.nn.init.constant_(m.bias, 0)
+        self.apply(init_weights)
+
         for param in self.gtn.parameters():
             param.requires_grad = False
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
 
         node_embeddings = self.gtn(x, edge_index, edge_attr)
-
         start_node_embed = node_embeddings[start_idx].unsqueeze(1)
         end_node_embed = node_embeddings[end_idx].unsqueeze(1)
         waypoint_node_embeds = node_embeddings[waypoint_node_indices]
         pred = self.node_transformer_model(waypoint_node_embeds, start_node_embed, end_node_embed)
 
         return pred
-    
+
 model = GTTP()
+
+def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
+    """
+    Pairwise ranking loss for predicting the relative order of waypoints.
+
+    Args:
+        predicted_ordering (torch.Tensor): Predicted scores for each waypoint, shape (batch_size, seq_len).
+        correct_ordering (torch.Tensor): Ground truth relative order, shape (batch_size, seq_len).
+        margin (float): Margin for ranking loss.
+
+    Returns:
+        torch.Tensor: Scalar loss value.
+    """
+    batch_size, seq_len = predicted_ordering.size()
+    
+    # Expand dimensions for pairwise comparison
+    pred_diff = predicted_ordering.unsqueeze(2) - predicted_ordering.unsqueeze(1)  # Shape: (batch_size, seq_len, seq_len)
+    true_diff = correct_ordering.unsqueeze(2) - correct_ordering.unsqueeze(1)      # Shape: (batch_size, seq_len, seq_len)
+    
+    # Compute pairwise labels (+1 if correct ordering, -1 otherwise)
+    pairwise_labels = (true_diff > 0).float() * 2 - 1  # Shape: (batch_size, seq_len, seq_len)
+
+    # Compute ranking loss for each pair
+    loss = F.relu(margin - pred_diff * pairwise_labels)  # Shape: (batch_size, seq_len, seq_len)
+
+    # Mask out diagonal entries (self-comparisons)
+    mask = torch.eye(seq_len, dtype=torch.bool, device=predicted_ordering.device)
+    loss = loss.masked_fill(mask.unsqueeze(0), 0.0)
+
+    # Return mean loss
+    return loss.sum() / (batch_size * (seq_len * (seq_len - 1)))
 
 import torch.nn as nn
 import torch.optim as optim
 
 # Define optimizer
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 # Define the number of epochs
-num_epochs = 100000
+num_epochs = 1000
 
 # Move model to appropriate device (CPU or GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -388,6 +440,10 @@ for epoch in range(num_epochs):
     # Backpropagation
     optimizer.zero_grad()
     loss.backward()
+
+    # Gradient clipping
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
     optimizer.step()
 
     # Accumulate loss for tracking
