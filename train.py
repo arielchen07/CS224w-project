@@ -16,6 +16,31 @@ import networkx as nx
 
 R = 6371000  
 
+from math import radians, cos
+
+anchor_point = (37.4340414, -122.17246)
+
+def xy_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the x-distance (longitude) and y-distance (latitude) in meters
+    between two geographic points on Earth.
+    """
+    # Earth radius in meters
+    R = 6371000  
+    
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    
+    # Calculate the y-distance (latitude difference in meters)
+    delta_lat = lat2 - lat1
+    y_distance = delta_lat * R
+    
+    # Calculate the x-distance (longitude difference in meters)
+    delta_lon = lon2 - lon1
+    x_distance = delta_lon * R * cos((lat1 + lat2) / 2)  # Adjust for latitude
+
+    return x_distance, y_distance
+
 def construct_graph(osmPath: str):
 
     def compute_distance(lat1, lon1, lat2, lon2):
@@ -38,7 +63,8 @@ def construct_graph(osmPath: str):
             self.id_counter = 0
 
         def node(self, n: osmium.osm.Node) -> None:
-            self.nodes.append([n.location.lat, n.location.lon])
+            xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
+            self.nodes.append([xy[0], xy[1]])
             self.node_id_to_idx[n.id] = self.id_counter
             self.idx_to_node_id[self.id_counter] = n.id
             self.id_counter += 1
@@ -236,6 +262,7 @@ class NodeTransformer(nn.Module):
         ])
         
         # LayerNorm to stabilize the output
+        self.linear = nn.Linear(embed_dim, embed_dim)
         self.norm = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, 1)
 
@@ -266,11 +293,15 @@ class NodeTransformer(nn.Module):
         # Pass through the Transformer encoder layers
         x = full_sequence
 
-        for layer in self.encoder_layers:
-            x = layer(x)
+        # for layer in self.encoder_layers:
+        #     x = layer(x)
         
-        # Apply LayerNorm
-        x = self.norm(x)
+        # # Apply LayerNorm
+        # x = self.norm(x)
+
+
+        x = self.linear(x)
+        x = F.relu(x)
         x = self.head(x)
         
         return x
@@ -293,11 +324,14 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        embed_dim = 64
+        embed_dim = 128
 
         self.gtn = GTN(input_dim=2, hidden_dim=10, output_dim=embed_dim, num_layers=2, dropout=0.1, beta=True, heads=1)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=4)
+        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=1, ff_dim=1024)
     
+        for param in self.gtn.parameters():
+            param.requires_grad = False
+
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
 
         node_embeddings = self.gtn(x, edge_index, edge_attr)
@@ -315,14 +349,17 @@ import torch.nn as nn
 import torch.optim as optim
 
 # Define optimizer
-optimizer = optim.Adam(model.parameters(), lr=1e-5)
+optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 # Define the number of epochs
-num_epochs = 10000
+num_epochs = 100000
 
 # Move model to appropriate device (CPU or GPU)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
+graph.x = graph.x.to(device)
+graph.edge_index = graph.edge_index.to(device)
+graph.edge_attr = graph.edge_attr.to(device)
 
 # Define a proper loss function
 loss_fn = nn.MSELoss()
