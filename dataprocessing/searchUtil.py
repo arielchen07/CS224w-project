@@ -1,5 +1,6 @@
 import heapq
 from dataclasses import dataclass
+from mapUtil import CityMap
 from typing import Dict, Hashable, List, Optional, Tuple
 
 ########################################################################################
@@ -35,6 +36,32 @@ class SearchAlgorithm:
 
     def solve(self, problem: SearchProblem) -> None:
         raise NotImplementedError("Override me")
+    
+########################################################################################
+# Find Shortest Path Between Two Lables
+class ShortestPathProblem(SearchProblem):
+
+    def __init__(self, startLocation: str, endTag: str, cityMap: CityMap) -> None:
+        self.startLocation = startLocation
+        self.endTag = endTag
+        self.cityMap = cityMap
+
+    def startState(self) -> State:
+        return State(location=self.startLocation)
+    
+    def isEnd(self, state: State) -> bool:
+        return self.endTag in self.cityMap.tags[state.location]
+    
+    def actionSuccessorsAndCosts(self, state: State) -> List[Tuple[str, State, float]]:
+        result = []
+        currentLocation = state.location
+        neighbourDict = self.cityMap.distances[currentLocation]
+        for neighbor in neighbourDict.keys():
+            action = neighbor
+            cost = neighbourDict[neighbor]
+            successorState = State(location=neighbor)
+            result.append((action, successorState, cost))
+        return result
 
 ########################################################################################
 # Uniform Cost Search (Dijkstra's algorithm)
