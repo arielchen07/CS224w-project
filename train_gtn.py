@@ -48,7 +48,7 @@ class GTN(torch.nn.Module):
         self.convs = torch.nn.ModuleList(conv_layers)
 
         # Initialize LayerNorm layers for normalization
-        norm_layers = [torch.nn.LayerNorm(hidden_dim) for _ in range(num_layers - 1)]
+        norm_layers = [torch.nn.BatchNorm1d(hidden_dim) for _ in range(num_layers - 1)]
         self.norms = torch.nn.ModuleList(norm_layers)
 
         self.dropout = dropout
@@ -95,16 +95,10 @@ class GTN(torch.nn.Module):
 
         for i in range(self.num_layers - 1):
 
-            # if i > 0:
-            #     residual = x  # Save the input for the residual connection
-            
             x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
             x = self.norms[i](x)  # Layer normalization
             x = F.relu(x)  # Non-linear activation
-            x = F.dropout(x, p=self.dropout, training=self.training)  # Dropout
-
-            # if i > 0:
-            #     x = x + residual  # Add the residual connection
+            x = F.dropout(x, p=self.dropout)  # Dropout
 
         # Last layer, no residual connection
         x = self.convs[-1](x, edge_index, edge_attr)
@@ -165,13 +159,43 @@ if __name__ == "__main__":
     model = GTN(input_dim=2, hidden_dim=1024, output_dim=1024, num_layers=10, dropout=0.1, beta=True, heads=4)
     model = model.to(device)
 
-    # def initialize_weights(module):
-    #     if isinstance(module, torch.nn.Linear):
-    #         torch.nn.init.xavier_uniform_(module.weight)
-    #         if module.bias is not None:
-    #             torch.nn.init.zeros_(module.bias)
+    model.load_state_dict(torch.load('gtn.pth'))
 
-    # model.apply(initialize_weights)
+    # for batch in dataloader:
+
+    #     model.train()
+    #     node_embeddings_train = model(batch.x, batch.edge_index, batch.edge_attr)
+    #     model.eval()
+    #     node_embeddings_eval = model(batch.x, batch.edge_index, batch.edge_attr)
+    #     print("Difference:", torch.norm(node_embeddings_train - node_embeddings_eval))
+        
+    #     print(node_embeddings_train)
+    #     print(node_embeddings_eval)
+        
+    #     # Hook to inspect intermediate activations
+    #     activations = {}
+
+    #     def hook_fn(module, input, output):
+    #         activations[module] = output
+
+    #     for name, module in model.named_modules():
+    #         module.register_forward_hook(hook_fn)
+
+    #     model.train()
+    #     node_embeddings_train = model(batch.x, batch.edge_index, batch.edge_attr)
+    #     train_activations = {k: v.clone() for k, v in activations.items()}
+        
+    #     model.eval()
+    #     node_embeddings_eval = model(batch.x, batch.edge_index, batch.edge_attr)
+    #     eval_activations = {k: v.clone() for k, v in activations.items()}
+
+    #     print("Difference:", torch.norm(node_embeddings_train - node_embeddings_eval))
+        
+    #     for name in train_activations:
+    #         diff = torch.norm(train_activations[name] - eval_activations[name])
+    #         print(f"{name} Output Difference: {diff}")
+
+    #     exit(0)
 
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
@@ -222,30 +246,53 @@ if __name__ == "__main__":
 
             optimizer.step()
 
-            # scheduler.step(loss)
-
-            # if epoch == epochs - 1 and idx == 0:
-
-            #     torch.set_printoptions(threshold=torch.inf)
-
-            #     print(f"predicted_edge_attrs: {predicted_edge_attrs}")
-            #     print(f"batch.edge_attr: {batch.edge_attr}")
-
-            #     print(f"predicted_adj: {predicted_adj}")
-            #     print(f"batch_adj_matrix: {batch_adj_matrix}")
-
-            #     torch.set_printoptions()
-
-            epoch_adj_loss += edge_attr_loss.item()
-            epoch_edge_attr_loss += adj_loss.item()
+            epoch_adj_loss += adj_loss.item()
+            epoch_edge_attr_loss += edge_attr_loss.item()
 
         # Print training progress
         print(f"Epoch {epoch+1}/{epochs} "
-                f"Edge Attr Loss: {epoch_edge_attr_loss / len(batch):.4f} Adj Loss: {epoch_adj_loss / len(batch):.4f}")
+                f"Edge Attr Loss: {epoch_edge_attr_loss:.4f} Adj Loss: {epoch_adj_loss:.4f}")
         
         if epoch_edge_attr_loss + epoch_adj_loss < min_loss:
             min_loss = epoch_edge_attr_loss + epoch_adj_loss
             torch.save(model.state_dict(), 'gtn.pth')
+            print("Saving model to gtn.pth")
+
+        # Evaluate the model
+        model.eval()
+        epoch_adj_loss = 0
+        epoch_edge_attr_loss = 0
+
+        for idx, batch in enumerate(dataloader):
+
+            batch = batch.to(device)
+
+            node_embeddings = model(batch.x, batch.edge_index, batch.edge_attr)
+
+            # Reconstruct edge attributes
+            predicted_edge_attrs = model.reconstruct_edge_attrs(node_embeddings, batch.edge_index)
+
+            # Reconstruct adjacency matrix
+            predicted_adj = model.reconstruct_adj_matrix(node_embeddings)
+
+            # Generate ground truth adjacency matrix for the batch
+            batch_adj_matrix = torch.zeros((len(batch.x), len(batch.x)), dtype=torch.float32).to(device)
+            batch_adj_matrix[batch.edge_index[0], batch.edge_index[1]] = 1.0
+
+            if len(predicted_edge_attrs) > 0:
+                edge_attr_loss = F.mse_loss(predicted_edge_attrs, batch.edge_attr)
+            else:
+                edge_attr_loss = 0
+
+            adj_loss = F.binary_cross_entropy(predicted_adj, batch_adj_matrix)
+
+            loss = edge_attr_loss + adj_loss
+
+            epoch_adj_loss += adj_loss.item()
+            epoch_edge_attr_loss += edge_attr_loss.item()
+
+        # Print training progress
+        print(f"Evaluation: Edge Attr Loss: {epoch_edge_attr_loss:.4f} Adj Loss: {epoch_adj_loss:.4f}")
 
     model = GTN(input_dim=2, hidden_dim=1024, output_dim=1024, num_layers=10, dropout=0.1, beta=True, heads=4)
     model = model.to(device)
@@ -284,10 +331,8 @@ if __name__ == "__main__":
 
         loss = edge_attr_loss + adj_loss
 
-        epoch_adj_loss += edge_attr_loss.item()
-        epoch_edge_attr_loss += adj_loss.item()
-
-    print(node_embeddings)
+        epoch_adj_loss += adj_loss.item()
+        epoch_edge_attr_loss += edge_attr_loss.item()
 
     # Print training progress
-    print(f"Evaluation: Edge Attr Loss: {epoch_edge_attr_loss / len(batch):.4f} Adj Loss: {epoch_adj_loss / len(batch):.4f}")
+    print(f"Evaluation: Edge Attr Loss: {epoch_edge_attr_loss:.4f} Adj Loss: {epoch_adj_loss:.4f}")
