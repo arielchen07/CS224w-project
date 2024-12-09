@@ -134,18 +134,24 @@ def plotEmptyMap(cityMap: CityMap, mapName: str):
     fig.show()
 
 def getCompletePath(start, wayPoints, end, stanfordCalMap):
+
+    resultPath = []
     usc = UniformCostSearch(verbose=0)
     currStart = start
     for wayPoint in wayPoints:
-        startLocation = '6883032630'
-        endTag = 'label=1729913983'
         currEnd = wayPoint
-        problem = ShortestPathProblem(startLocation=startLocation, endTag=currEnd, cityMap=stanfordCalMap)
+        problem = ShortestPathProblem(startLocation=currStart, endTag=currEnd, cityMap=stanfordCalMap)
         usc.solve(problem)
         currPath = extractPath(problem.startLocation, usc)
-        print(currPath)
-        print(currStart, currEnd)
-        exit()
+        resultPath += currPath[:-1]
+        currStart = currEnd.split('=')[1]
+    
+    # End node
+    problem = ShortestPathProblem(startLocation=currStart, endTag=end, cityMap=stanfordCalMap)
+    usc.solve(problem)
+    currPath = extractPath(problem.startLocation, usc)
+    resultPath += currPath
+    return resultPath
     
 
 
@@ -157,7 +163,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--path-file",
         type=str,
-        default="out/0.json",
+        default="out/10.json",
         help="Path to visualize (.json), path should correspond to some map file",
     )
     parser.add_argument(
@@ -185,10 +191,12 @@ if __name__ == "__main__":
             with open(args.path_file) as f:
                 data = json.load(f)
                 parsedWaypointTags = data["waypointTags"]
-                parsedPath = getCompletePath(data['start'], data['waypointTags'], data['end'], stanfordCalMap)
+                parsedPath = getCompletePath(data['start'], data['waypointTags'], f"label={data['end']}", stanfordCalMap)
         else:
             parsedPath = []
             parsedWaypointTags = []
+
+        print(parsedWaypointTags)
 
         plotMap(
             cityMap=stanfordCityMap,
