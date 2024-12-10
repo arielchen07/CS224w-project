@@ -297,7 +297,7 @@ for epoch in range(num_epochs):
 
         # Compute loss
         # loss = loss_fn(predicted_ordering, waypoints_correct.float())
-        loss = loss_fn(predicted_ordering.view(-1, len(predicted_ordering)), waypoints_correct.view(-1))
+        loss = loss_fn(predicted_ordering, waypoints_correct.view(-1))
 
 
         # Backpropagation
