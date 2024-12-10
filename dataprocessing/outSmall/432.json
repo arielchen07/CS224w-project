@@ -1,0 +1,12 @@
+{
+  "start": "5,4",
+  "waypointTags": [
+    "label=1,6",
+    "label=2,1",
+    "label=5,0",
+    "label=5,1",
+    "label=9,1",
+    "label=7,5"
+  ],
+  "end": "9,7"
+}

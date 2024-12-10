@@ -6,7 +6,8 @@ import argparse
 from tqdm import tqdm
 from mapUtil import (
     CityMap,
-    createMap
+    createMap,
+    createGridMap
 )
 from search import (
     generateRandomPath,
@@ -66,7 +67,8 @@ def printPath(
 
 def calculatePath(minNum, maxNum, saveId, savePath):
     """Given custom WaypointsShortestPathProblem, find the minimun path and prepare visualization."""
-    cityMap = createMap("../data/stanford.pbf")
+    # cityMap = createMap("../data/stanford.pbf")
+    cityMap = createGridMap(10, 10)
     startLocation, waypointTags, endTag = generateRandomPath(cityMap, minWayPoints=minNum, maxWayPoints=maxNum)
     problem = WaypointsShortestPathProblem(startLocation, tuple(sorted(waypointTags)), str(endTag), cityMap)
 
@@ -88,23 +90,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--maxWayPoints", 
         type=int, 
-        default=8, 
+        default=6, 
         help="Maximum number of way points"
     )
     parser.add_argument(
         "--numPath", 
         type=int, 
-        default=5000, 
+        default=1000, 
         help="Number of data points to generate"
     )
     parser.add_argument(
         "--savePath", 
         type=str, 
-        default="out", 
+        default="outSmall", 
         help="Number of data points to generate"
     )
 
     args = parser.parse_args()
     os.makedirs(args.savePath, exist_ok=True)
-    for num in tqdm(range(570, args.numPath)):
+    for num in tqdm(range(args.numPath)):
         calculatePath(args.minWayPoints, args.maxWayPoints, num, args.savePath)

@@ -282,6 +282,37 @@ def createMap(map_file: str) -> CityMap:
     cityMap = readMap(map_file)
     return cityMap
 
+def makeGridLabel(x: int, y: int) -> str:
+    """
+    Function to create location label from (latitude, longitude) in degrees.
+    """
+    return f"{x},{y}"
+
+
+def createGridMap(width: int, height: int) -> CityMap:
+    """
+    Create a simple map width x height grid of locations.
+    """
+    cityMap = CityMap()
+
+    for x, lat in enumerate([x * UNIT_DELTA for x in range(width)]):
+        for y, lon in enumerate([y * UNIT_DELTA for y in range(height)]):
+            cityMap.addLocation(
+                makeGridLabel(x, y),
+                GeoLocation(lat, lon),
+                tags=[makeTag("x", x), makeTag("y", y)],
+            )
+            if x > 0:
+                cityMap.addConnection(
+                    makeGridLabel(x - 1, y), makeGridLabel(x, y), distance=1
+                )
+            if y > 0:
+                cityMap.addConnection(
+                    makeGridLabel(x, y - 1), makeGridLabel(x, y), distance=1
+                )
+
+    return cityMap
+
 
 if __name__ == "__main__":
     stanfordMap = createStanfordMap()
