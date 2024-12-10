@@ -125,12 +125,7 @@ class GTTP(nn.Module):
         self.gtn.eval()
         # self.node_transformer_model = NodeTransformer(embed_dim=1024 * 4, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
 
-        self.node_transformer_model = nn.Transformer(d_model=1024 * 4, 
-                nhead=1, 
-                dim_feedforward=1024, 
-                dropout=0, 
-                activation='gelu',
-                batch_first=True,)
+        self.node_transformer_model = TransformerPathPredictor(embedding_dim=1024 * 4, num_nodes=48, num_heads=1, num_layers=1)
         
         # self.gtn.load_state_dict(torch.load('gtn.pth'))
 
@@ -145,10 +140,52 @@ class GTTP(nn.Module):
         waypoint_node_embeds = node_embeddings[waypoint_node_indices]
         # pred = self.node_transformer_model(waypoint_node_embeds, start_node_embed, end_node_embed)
 
-        all_embeddings = torch.cat([start_node_embed, end_node_embed, waypoint_node_embeds], dim=1)
-        pred = self.node_transformer_model(src=all_embeddings, tgt=waypoint_node_order)
+        # all_embeddings = torch.cat([start_node_embed, end_node_embed, waypoint_node_embeds], dim=1)
+        # pred = self.node_transformer_model(src=all_embeddings, tgt=waypoint_node_order)
+        
+        pred = self.node_transformer_model(waypoint_node_embeds, waypoint_node_order)
         
         return pred
+
+class TransformerPathPredictor(nn.Module):
+    def __init__(self, embedding_dim, num_nodes, num_heads, num_layers):
+        super(TransformerPathPredictor, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.num_nodes = num_nodes
+        
+        # Transformer components
+        self.positional_encoding = nn.Parameter(torch.zeros(1, num_nodes, embedding_dim))
+        self.transformer = nn.Transformer(
+            d_model=embedding_dim, 
+            nhead=num_heads, 
+            num_encoder_layers=num_layers, 
+            num_decoder_layers=num_layers
+        )
+        self.output_layer = nn.Linear(embedding_dim, num_nodes)  # Output probabilities for node indices
+
+    def forward(self, embeddings, target_sequence=None, teacher_forcing=False):
+        """
+        embeddings: Tensor of shape (N, D) - Node embeddings
+        target_sequence: Tensor of shape (N, 1) - Target order of nodes (if available)
+        teacher_forcing: bool - Whether to use teacher forcing during training
+        """
+        # Apply positional encoding
+        src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
+        src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
+        
+        if target_sequence is not None and teacher_forcing:
+            tgt_embeddings = self.embedding_dim[target_sequence]
+            tgt = tgt_embeddings + self.positional_encoding[:, :target_sequence.size(0), :]
+        else:
+            tgt = torch.zeros_like(src)  # Decoder input during inference
+        
+        # Transformer forward pass
+        transformer_output = self.transformer(src, tgt)
+        
+        # Predict node indices
+        logits = self.output_layer(transformer_output)
+        return logits
+    
 
 def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
     """
