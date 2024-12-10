@@ -37,8 +37,32 @@ torch.backends.cudnn.benchmark = False
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-graph_path = "data/stanford.pbf"
-graph, node_id_to_idx = construct_graph(graph_path)
+# graph_path = "data/stanford.pbf"
+# graph, node_id_to_idx = construct_graph(graph_path)
+
+nodes = []
+for i in range(10):
+    for j in range(10):
+        nodes.append([i, j])
+
+x = torch.tensor(nodes, dtype=torch.float)
+
+edge_index_list = []
+edge_attr_list = []
+for i in range(10):
+    for j in range(10):
+        if i < 9:
+            edge_index_list.append([i*10+j, (i+1)*10+j])
+            edge_attr_list.append(1.0)
+        if j < 9:
+            edge_index_list.append([i*10+j, i*10+j+1])
+            edge_attr_list.append(1.0)
+
+edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
+edge_attr = torch.tensor(edge_attr_list, dtype=torch.float).unsqueeze(1)
+
+graph = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+
 graph.x = graph.x.to(device)
 graph.edge_index = graph.edge_index.to(device)
 graph.edge_attr = graph.edge_attr.to(device)
@@ -49,6 +73,10 @@ graph.edge_attr = normalize_features(graph.edge_attr)
 adj_matrix = torch.zeros((len(graph.x), len(graph.x)), dtype=torch.float32).to(device)
 adj_matrix[graph.edge_index[0], graph.edge_index[1]] = 1.0
 
+print(f"graph.x.shape: {graph.x.shape}")
+print(f"graph.edge_index.shape: {graph.edge_index.shape}")
+print(f"graph.edge_attr.shape: {graph.edge_attr.shape}")
+
 class NodeTransformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_seq_len=48, ff_dim=64, dropout=0.1):
         super(NodeTransformer, self).__init__()
@@ -57,8 +85,8 @@ class NodeTransformer(nn.Module):
         self.embed_dim = embed_dim
         
         # Learnable special embeddings for fixed start and end node
-        self.start_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=True)
-        self.end_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=True)
+        self.start_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=False)
+        self.end_node_embed_tag = nn.Parameter(torch.randn(1, 1, embed_dim), requires_grad=False)
         
         # Transformer encoder layers
         self.encoder_layers = nn.ModuleList([
@@ -130,12 +158,12 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        embed_dim = 1024
+        embed_dim = 128
         ff_dim = embed_dim
         hidden_dim = embed_dim
 
-        self.gtn = GTN(input_dim=2, hidden_dim=hidden_dim, output_dim=embed_dim, num_layers=10, dropout=0.1, beta=True, heads=4)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=1, ff_dim=ff_dim, dropout=0.1)
+        self.gtn = GTN(input_dim=2, hidden_dim=hidden_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
+        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=3, ff_dim=ff_dim, dropout=0.1)
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
 
@@ -147,7 +175,7 @@ class GTTP(nn.Module):
 
         return pred
 
-def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
+def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=3.0):
     """
     Pairwise ranking loss for predicting the relative order of waypoints.
 
@@ -192,7 +220,7 @@ def run_evaluate(model, loader):
                 graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled
             )
 
-            predicted_ordering = predicted_ordering * 8
+            predicted_ordering = predicted_ordering
 
             # Process the predictions
             predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
@@ -211,9 +239,15 @@ def run_evaluate(model, loader):
     return avg_loss
 
 
+node_id_to_idx = {}
+
+for i in range(10):
+    for j in range(10):
+        node_id_to_idx[f"{i},{j}"] = i*10+j
+
 # Load data and graph
 batch_size = 64
-route_dir = "dataprocessing/out"
+route_dir = "dataprocessing/outSmall"
 train_dataset, val_dataset, test_dataset = load_path_data(route_dir=route_dir, node_id_to_idx=node_id_to_idx)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -223,14 +257,6 @@ print(f"val_dataset length: {len(val_dataset)}")
 print(f"test_dataset length: {len(test_dataset)}")
 
 model = GTTP()
-
-if os.path.exists('gttp.pth'):
-    model.load_state_dict(torch.load('gttp.pth'))
-else:
-    if os.path.exists('gtn.pth'):
-        model.gtn.load_state_dict(torch.load('gtn.pth'))
-
-
 model = model.to(device)
 
 # Define optimizer
@@ -240,8 +266,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-4)
 num_epochs = 10000
 
 # Define a proper loss function
-# loss_fn = pairwise_ranking_loss
-loss_fn = nn.MSELoss()
+loss_fn = pairwise_ranking_loss
+# loss_fn = nn.MSELoss()
 
 min_val_loss = run_evaluate(model, val_loader)
 
@@ -249,7 +275,6 @@ min_val_loss = run_evaluate(model, val_loader)
 for epoch in range(num_epochs):
 
     model.train()
-    model.gtn.eval()
 
     total_loss = 0
     num_batches = 0

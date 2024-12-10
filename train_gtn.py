@@ -56,7 +56,7 @@ class GTN(torch.nn.Module):
         )
 
         # Initialize LayerNorm layers for normalization
-        norm_layers = [torch.nn.BatchNorm1d(hidden_dim) for _ in range(num_layers - 1)]
+        norm_layers = [torch.nn.LayerNorm(hidden_dim) for _ in range(num_layers - 1)]
         self.norms = torch.nn.ModuleList(norm_layers)
 
         self.dropout = dropout
@@ -104,9 +104,9 @@ class GTN(torch.nn.Module):
         for i in range(self.num_layers - 1):
 
             x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
-            # x = self.norms[i](x)  # Layer normalization
+            x = self.norms[i](x)  # Layer normalization
             x = F.relu(x)  # Non-linear activation
-            # x = F.dropout(x, p=self.dropout)  # Dropout
+            x = F.dropout(x, p=self.dropout)  # Dropout
 
         # Last layer, no residual connection
         x = self.convs[-1](x, edge_index, edge_attr)
@@ -154,9 +154,6 @@ if __name__ == "__main__":
 
     graph.x = normalize_features(graph.x)
     graph.edge_attr = normalize_features(graph.edge_attr)
-
-    adj_matrix = torch.zeros((len(graph.x), len(graph.x)), dtype=torch.float32).to(device)
-    adj_matrix[graph.edge_index[0], graph.edge_index[1]] = 1.0
 
     batch_size = 64  # Adjust based on available memory
     dataloader = NeighborLoader(

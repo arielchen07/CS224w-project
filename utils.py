@@ -131,7 +131,7 @@ def construct_graph(osmPath: str):
 
 class PathDataset(Dataset):
 
-    def __init__(self, route_files: List[str], node_id_to_idx: dict, fixed_length: int = 8):
+    def __init__(self, route_files: List[str], node_id_to_idx: dict, fixed_length: int = 6):
         self.route_files = route_files
         self.node_id_to_idx = node_id_to_idx
         self.fixed_length = fixed_length
@@ -149,11 +149,11 @@ class PathDataset(Dataset):
             waypoint_ids = [tag.split('=')[1] for tag in waypoint_tags]
 
             try:
-                start_idx = self.node_id_to_idx[int(start_id)]
-                end_idx = self.node_id_to_idx[int(end_id)]
-                waypoints_correct = [self.node_id_to_idx[int(w_id)] for w_id in waypoint_ids]
+                start_idx = self.node_id_to_idx[start_id]
+                end_idx = self.node_id_to_idx[end_id]
+                waypoints_correct = [self.node_id_to_idx[w_id] for w_id in waypoint_ids]
 
-                if len(waypoints_correct) != 8:
+                if len(waypoints_correct) != 6:
                     continue
 
             except KeyError:
