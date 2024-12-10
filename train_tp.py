@@ -178,6 +178,8 @@ class TransformerPathPredictor(nn.Module):
         # Apply positional encoding
         src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
 
+        print("src", src.shape)
+
         src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
         
         if target_sequence is not None and teacher_forcing:
@@ -186,11 +188,17 @@ class TransformerPathPredictor(nn.Module):
         else:
             tgt = torch.zeros_like(src)  # Decoder input during inference
         
+        print("tgt", tgt.shape)
+
         # Transformer forward pass
         transformer_output = self.transformer(src, tgt)
         
+        print("transformer_output", transformer_output.shape)
+
         # Predict node indices
         logits = self.output_layer(transformer_output)
+
+        print("logits", logits.shape)   
         return logits
     
 
