@@ -143,7 +143,10 @@ class GTTP(nn.Module):
         # all_embeddings = torch.cat([start_node_embed, end_node_embed, waypoint_node_embeds], dim=1)
         # pred = self.node_transformer_model(src=all_embeddings, tgt=waypoint_node_order)
         
+        print("waypoint_node_embeds", waypoint_node_embeds.shape)
+        print("waypoint_node_order", waypoint_node_order.shape)
         pred = self.node_transformer_model(waypoint_node_embeds, waypoint_node_order)
+        
 
         return pred
 
