@@ -299,7 +299,7 @@ for epoch in range(num_epochs):
         print(f"waypoints_correct: {waypoints_correct.shape}")
         # Compute loss
         # loss = loss_fn(predicted_ordering, waypoints_correct.float())
-        loss = loss_fn(predicted_ordering, waypoints_correct)
+        loss = loss_fn(predicted_ordering, waypoints_correct.float())
 
 
         # Backpropagation
