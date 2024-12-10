@@ -154,7 +154,7 @@ class TransformerPathPredictor(nn.Module):
         self.num_nodes = num_nodes
         
         # Transformer components
-        self.positional_encoding = nn.Parameter(torch.zeros(1, num_nodes, embedding_dim))
+        self.positional_encoding = nn.Parameter(torch.zeros(32, num_nodes, embedding_dim))
         self.transformer = nn.Transformer(
             d_model=embedding_dim, 
             nhead=num_heads, 
@@ -172,8 +172,7 @@ class TransformerPathPredictor(nn.Module):
         print(embeddings.shape)
         print(self.positional_encoding.shape)
         # Apply positional encoding
-        # src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
-        src = embeddings + self.positional_encoding.expand(embeddings.size(0), -1, -1)
+        src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
 
         src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
         
