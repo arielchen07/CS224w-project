@@ -185,6 +185,7 @@ class TransformerPathPredictor(nn.Module):
         if target_sequence is not None and teacher_forcing:
             # Get the embeddings for the target sequence (should be of shape [batch_size, seq_len, embedding_dim])
             tgt_embeddings = self.embedding_dim[target_sequence].squeeze()  # Ensure correct shape
+            print("tgt_embeddings", tgt_embeddings.shape)
             tgt = tgt_embeddings + self.positional_encoding[:, :tgt_embeddings.size(0), :]
         else:
             tgt = torch.zeros_like(src)  # Decoder input during inference
