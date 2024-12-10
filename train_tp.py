@@ -72,10 +72,17 @@ class NodeTransformer(nn.Module):
             ) 
             for _ in range(num_layers)
         ])
+
+        self.norm = nn.LayerNorm(embed_dim)
         
         # LayerNorm to stabilize the output
-        self.linear = nn.Linear(embed_dim, embed_dim)
-        self.norm = nn.LayerNorm(embed_dim)
+        self.mlp = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim),
+            nn.ReLU(),
+        )
+
         self.head = nn.Linear(embed_dim, 1)
 
     def forward(self, waypoint_node_embeds, start_node_embed, end_node_embed):
@@ -95,8 +102,8 @@ class NodeTransformer(nn.Module):
         assert embed_dim == self.embed_dim, f"Embedding dimension mismatch: {embed_dim} != {self.embed_dim}"
 
         # Add learnable tags to fixed nodes
-        start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
-        end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        # start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        # end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
 
         # Concatenate fixed nodes with the variable-length sequence
         fixed_nodes = torch.cat([start_node_embed, end_node_embed], dim=1)  # Shape: (batch_size, 2, embed_dim)
@@ -105,14 +112,16 @@ class NodeTransformer(nn.Module):
         # Pass through the Transformer encoder layers
         x = full_sequence
 
+        # print(f"waypoint_node_embeds: {waypoint_node_embeds}")
+
+        # print(f"embedding: {x}")
+
         for layer in self.encoder_layers:
             x = layer(x)
         
         # Apply LayerNorm
         x = self.norm(x)
-
-        x = self.linear(x)
-        x = F.relu(x)
+        x = self.mlp(x)
         x = self.head(x)
         
         return x
@@ -121,13 +130,12 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        self.gtn = GTN(input_dim=2, hidden_dim=1024, output_dim=1024, num_layers=10, dropout=0.1, beta=True, heads=4)
-        self.node_transformer_model = NodeTransformer(embed_dim=1024 * 4, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
+        embed_dim = 1024
+        ff_dim = embed_dim
+        hidden_dim = embed_dim
 
-        self.gtn.load_state_dict(torch.load('gtn.pth'))
-
-        for param in self.gtn.parameters():
-            param.requires_grad = False
+        self.gtn = GTN(input_dim=2, hidden_dim=hidden_dim, output_dim=embed_dim, num_layers=10, dropout=0.1, beta=True, heads=4)
+        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=1, ff_dim=ff_dim, dropout=0.1)
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
 
@@ -170,6 +178,38 @@ def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
     # Return mean loss
     return loss.sum() / (batch_size * (seq_len * (seq_len - 1)))
 
+def run_evaluate(model, loader):
+    model.eval()
+
+    total_loss = 0
+    num_batches = 0
+
+    for batch in loader:
+        start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
+
+        with torch.no_grad():
+            predicted_ordering = model(
+                graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled
+            )
+
+            predicted_ordering = predicted_ordering * 8
+
+            # Process the predictions
+            predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
+
+            # Compute loss
+            loss = loss_fn(predicted_ordering, waypoints_correct.float())
+
+            # Accumulate loss for tracking
+            total_loss += loss.item()
+            num_batches += 1
+
+    # Print epoch loss
+    avg_loss = total_loss / num_batches
+    print(f"Validation Loss: {avg_loss:.4f}")
+
+    return avg_loss
+
 
 # Load data and graph
 batch_size = 32
@@ -183,8 +223,15 @@ print(f"val_dataset length: {len(val_dataset)}")
 print(f"test_dataset length: {len(test_dataset)}")
 
 model = GTTP()
+
+if os.path.exists('gttp.pth'):
+    model.load_state_dict(torch.load('gttp.pth'))
+else:
+    if os.path.exists('gtn.pth'):
+        model.gtn.load_state_dict(torch.load('gtn.pth'))
+
+
 model = model.to(device)
-model.train()
 
 # Define optimizer
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -196,12 +243,22 @@ num_epochs = 10000
 # loss_fn = pairwise_ranking_loss
 loss_fn = nn.MSELoss()
 
+# for batch in train_loader:
+#     break
+
+min_val_loss = run_evaluate(model, val_loader)
+
 # Training loop
 for epoch in range(num_epochs):
 
+    model.train()
+    model.gtn.eval()
+
     total_loss = 0
+    num_batches = 0
 
     for batch in train_loader:
+    # for i in range(1):
 
         start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
 
@@ -209,6 +266,8 @@ for epoch in range(num_epochs):
         predicted_ordering = model(
             graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled
         )
+
+        predicted_ordering = predicted_ordering * 8
 
         # Process the predictions
         predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
@@ -226,8 +285,19 @@ for epoch in range(num_epochs):
         optimizer.step()
 
         # Accumulate loss for tracking
-        total_loss += loss.item() / batch_size
+        total_loss += loss.item()
+        num_batches += 1
+
+    print(f"predicted_ordering: {predicted_ordering[0]}")
+    print(f"waypoints_correct: {waypoints_correct[0]}")
 
     # Print epoch loss
-    avg_loss = total_loss / len(train_loader)
+    avg_loss = total_loss / num_batches
     print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
+
+    val_loss = run_evaluate(model, val_loader)
+
+    if val_loss < min_val_loss:
+        min_val_loss = val_loss
+        torch.save(model.state_dict(), 'gttp.pth')
+        print(f"Model saved with loss: {min_val_loss}")

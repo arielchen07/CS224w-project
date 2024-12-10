@@ -44,8 +44,16 @@ class GTN(torch.nn.Module):
         # Initialize transformer convolution layers with edge attributes
         conv_layers = [TransformerConv(input_dim, hidden_dim // heads, heads=heads, edge_dim=1, beta=beta)]
         conv_layers += [TransformerConv(hidden_dim, hidden_dim // heads, heads=heads, edge_dim=1, beta=beta) for _ in range(num_layers - 2)]
-        conv_layers.append(TransformerConv(hidden_dim, output_dim, heads=heads, edge_dim=1, beta=beta, concat=True))
+        conv_layers.append(TransformerConv(hidden_dim, hidden_dim, heads=heads, edge_dim=1, beta=beta, concat=True))
         self.convs = torch.nn.ModuleList(conv_layers)
+
+        self.mlp = torch.nn.Sequential(
+            torch.nn.Linear(hidden_dim * heads, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.LayerNorm(hidden_dim),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_dim, output_dim)
+        )
 
         # Initialize LayerNorm layers for normalization
         norm_layers = [torch.nn.BatchNorm1d(hidden_dim) for _ in range(num_layers - 1)]
@@ -54,19 +62,19 @@ class GTN(torch.nn.Module):
         self.dropout = dropout
         self.reset_parameters()
 
-        # self.adj_decoder = torch.nn.Linear(output_dim * 2 * heads, 1)
-        # self.edge_attr_decoder = torch.nn.Linear(output_dim * 2 * heads, 1)
+        self.adj_decoder = torch.nn.Linear(output_dim * 2, 1)
+        self.edge_attr_decoder = torch.nn.Linear(output_dim * 2, 1)
 
-        self.adj_decoder = torch.nn.Sequential(
-            torch.nn.Linear(output_dim * 2 * heads, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 1)
-        )
-        self.edge_attr_decoder = torch.nn.Sequential(
-            torch.nn.Linear(output_dim * 2 * heads, hidden_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dim, 1)
-        )
+        # self.adj_decoder = torch.nn.Sequential(
+        #     torch.nn.Linear(output_dim * 2 * heads, hidden_dim),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(hidden_dim, 1)
+        # )
+        # self.edge_attr_decoder = torch.nn.Sequential(
+        #     torch.nn.Linear(output_dim * 2 * heads, hidden_dim),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(hidden_dim, 1)
+        # )
 
     def reset_parameters(self):
         """Resets parameters for the convolutional and normalization layers."""
@@ -96,12 +104,14 @@ class GTN(torch.nn.Module):
         for i in range(self.num_layers - 1):
 
             x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
-            x = self.norms[i](x)  # Layer normalization
+            # x = self.norms[i](x)  # Layer normalization
             x = F.relu(x)  # Non-linear activation
-            x = F.dropout(x, p=self.dropout)  # Dropout
+            # x = F.dropout(x, p=self.dropout)  # Dropout
 
         # Last layer, no residual connection
         x = self.convs[-1](x, edge_index, edge_attr)
+        
+        x = self.mlp(x)
 
         return x
 
@@ -200,7 +210,7 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
 
-    epochs = 0
+    epochs = 100
 
     # for idx, batch in enumerate(dataloader):
     #     batch = batch.to(device)

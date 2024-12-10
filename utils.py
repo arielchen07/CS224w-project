@@ -152,6 +152,10 @@ class PathDataset(Dataset):
                 start_idx = self.node_id_to_idx[int(start_id)]
                 end_idx = self.node_id_to_idx[int(end_id)]
                 waypoints_correct = [self.node_id_to_idx[int(w_id)] for w_id in waypoint_ids]
+
+                if len(waypoints_correct) != 8:
+                    continue
+
             except KeyError:
                 continue
 
