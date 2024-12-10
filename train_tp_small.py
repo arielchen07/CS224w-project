@@ -23,7 +23,7 @@ import numpy as np
 # from torch_sparse import SparseTensor
 
 from utils import construct_graph, load_path_data, normalize_features
-from train_gtn import GTN
+from train_gtn_small import GTN
 
 # Set the random seed for reproducibility
 seed = 42  # Replace with your desired seed
@@ -44,6 +44,10 @@ nodes = []
 for i in range(10):
     for j in range(10):
         nodes.append([i, j])
+
+        for ii in range(10):
+            for jj in range(10):
+                nodes[-1].append(abs(ii-i) + abs(jj-j))
 
 x = torch.tensor(nodes, dtype=torch.float)
 
@@ -72,10 +76,6 @@ graph.edge_attr = normalize_features(graph.edge_attr)
 
 adj_matrix = torch.zeros((len(graph.x), len(graph.x)), dtype=torch.float32).to(device)
 adj_matrix[graph.edge_index[0], graph.edge_index[1]] = 1.0
-
-print(f"graph.x.shape: {graph.x.shape}")
-print(f"graph.edge_index.shape: {graph.edge_index.shape}")
-print(f"graph.edge_attr.shape: {graph.edge_attr.shape}")
 
 class NodeTransformer(nn.Module):
     def __init__(self, embed_dim, num_heads, num_layers, max_seq_len=48, ff_dim=64, dropout=0.1):
@@ -130,8 +130,8 @@ class NodeTransformer(nn.Module):
         assert embed_dim == self.embed_dim, f"Embedding dimension mismatch: {embed_dim} != {self.embed_dim}"
 
         # Add learnable tags to fixed nodes
-        # start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
-        # end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        start_node_embed = start_node_embed + self.start_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
+        end_node_embed = end_node_embed + self.end_node_embed_tag  # Shape: (batch_size, 1, embed_dim)
 
         # Concatenate fixed nodes with the variable-length sequence
         fixed_nodes = torch.cat([start_node_embed, end_node_embed], dim=1)  # Shape: (batch_size, 2, embed_dim)
@@ -158,11 +158,11 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        embed_dim = 128
+        embed_dim = 32
         ff_dim = embed_dim
         hidden_dim = embed_dim
 
-        self.gtn = GTN(input_dim=2, hidden_dim=hidden_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
+        self.gtn = GTN(input_dim=2, hidden_dim=embed_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
         self.node_transformer_model = NodeTransformer(embed_dim=embed_dim, num_heads=1, num_layers=3, ff_dim=ff_dim, dropout=0.1)
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
@@ -175,7 +175,7 @@ class GTTP(nn.Module):
 
         return pred
 
-def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=3.0):
+def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
     """
     Pairwise ranking loss for predicting the relative order of waypoints.
 
@@ -249,7 +249,7 @@ for i in range(10):
 batch_size = 64
 route_dir = "dataprocessing/outSmall"
 train_dataset, val_dataset, test_dataset = load_path_data(route_dir=route_dir, node_id_to_idx=node_id_to_idx)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 print(f"train_dataset length: {len(train_dataset)}")
@@ -257,6 +257,9 @@ print(f"val_dataset length: {len(val_dataset)}")
 print(f"test_dataset length: {len(test_dataset)}")
 
 model = GTTP()
+
+# model.gtn.load_state_dict(torch.load('gtn.pth'))
+
 model = model.to(device)
 
 # Define optimizer
@@ -266,8 +269,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-4)
 num_epochs = 10000
 
 # Define a proper loss function
-loss_fn = pairwise_ranking_loss
-# loss_fn = nn.MSELoss()
+loss_fn_1 = pairwise_ranking_loss
+loss_fn = nn.MSELoss()
 
 min_val_loss = run_evaluate(model, val_loader)
 
@@ -295,7 +298,7 @@ for epoch in range(num_epochs):
         predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
 
         # Compute loss
-        loss = loss_fn(predicted_ordering, waypoints_correct.float())
+        loss = loss_fn(predicted_ordering, waypoints_correct.float()) + loss_fn_1(predicted_ordering, waypoints_correct)
 
         # Backpropagation
         optimizer.zero_grad()
