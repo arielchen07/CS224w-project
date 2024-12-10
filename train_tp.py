@@ -125,7 +125,7 @@ class GTTP(nn.Module):
         self.gtn.eval()
         # self.node_transformer_model = NodeTransformer(embed_dim=1024 * 4, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
 
-        self.node_transformer_model = TransformerPathPredictor(embedding_dim=1024 * 4, num_nodes=48, num_heads=1, num_layers=1)
+        self.node_transformer_model = TransformerPathPredictor(embedding_dim=1024 * 4, num_nodes=10, num_heads=1, num_layers=1)
         
         # self.gtn.load_state_dict(torch.load('gtn.pth'))
 
@@ -144,7 +144,7 @@ class GTTP(nn.Module):
         # pred = self.node_transformer_model(src=all_embeddings, tgt=waypoint_node_order)
         
         pred = self.node_transformer_model(waypoint_node_embeds, waypoint_node_order)
-        
+
         return pred
 
 class TransformerPathPredictor(nn.Module):
@@ -169,6 +169,8 @@ class TransformerPathPredictor(nn.Module):
         target_sequence: Tensor of shape (N, 1) - Target order of nodes (if available)
         teacher_forcing: bool - Whether to use teacher forcing during training
         """
+        print(embeddings.shape)
+        print(self.positional_encoding.shape)
         # Apply positional encoding
         src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
         src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
