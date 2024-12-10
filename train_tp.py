@@ -122,21 +122,32 @@ class GTTP(nn.Module):
         super(GTTP, self).__init__()
 
         self.gtn = GTN(input_dim=2, hidden_dim=1024, output_dim=1024, num_layers=10, dropout=0.1, beta=True, heads=4)
-        self.node_transformer_model = NodeTransformer(embed_dim=1024 * 4, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
+        self.gtn.eval()
+        # self.node_transformer_model = NodeTransformer(embed_dim=1024 * 4, num_heads=1, num_layers=1, ff_dim=1024, dropout=0)
 
-        self.gtn.load_state_dict(torch.load('gtn.pth'))
+        self.node_transformer_model = nn.Transformer(d_model=1024 * 4, 
+                nhead=1, 
+                dim_feedforward=1024, 
+                dropout=0, 
+                activation='gelu',
+                batch_first=True,)
+        
+        # self.gtn.load_state_dict(torch.load('gtn.pth'))
 
         for param in self.gtn.parameters():
             param.requires_grad = False
 
-    def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices):
+    def forward(self, x, edge_index, edge_attr, start_idx, end_idx, waypoint_node_indices, waypoint_node_order):
 
         node_embeddings = self.gtn(x, edge_index, edge_attr)
         start_node_embed = node_embeddings[start_idx].unsqueeze(1)
         end_node_embed = node_embeddings[end_idx].unsqueeze(1)
         waypoint_node_embeds = node_embeddings[waypoint_node_indices]
-        pred = self.node_transformer_model(waypoint_node_embeds, start_node_embed, end_node_embed)
+        # pred = self.node_transformer_model(waypoint_node_embeds, start_node_embed, end_node_embed)
 
+        all_embeddings = torch.cat([start_node_embed, end_node_embed, waypoint_node_embeds], dim=1)
+        pred = self.node_transformer_model(src=all_embeddings, tgt=waypoint_node_order)
+        
         return pred
 
 def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
@@ -207,27 +218,29 @@ for epoch in range(num_epochs):
 
         # Forward pass
         predicted_ordering = model(
-            graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled
+            graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled, waypoints_correct
         )
 
         # Process the predictions
         predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
 
-        # Compute loss
-        loss = loss_fn(predicted_ordering, waypoints_correct.float())
+        print(predicted_ordering)
 
-        # Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
+        # # Compute loss
+        # loss = loss_fn(predicted_ordering, waypoints_correct.float())
 
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # # Backpropagation
+        # optimizer.zero_grad()
+        # loss.backward()
 
-        optimizer.step()
+        # # Gradient clipping
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        # Accumulate loss for tracking
-        total_loss += loss.item() / batch_size
+        # optimizer.step()
+
+        # # Accumulate loss for tracking
+        # total_loss += loss.item() / batch_size
 
     # Print epoch loss
-    avg_loss = total_loss / len(train_loader)
-    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
+    # avg_loss = total_loss / len(train_loader)
+    # print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
