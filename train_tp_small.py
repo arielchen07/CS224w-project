@@ -260,7 +260,7 @@ model = GTTP()
 model = model.to(device)
 
 # Define optimizer
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=1e-2
 
 # Define the number of epochs
 num_epochs = 10000
