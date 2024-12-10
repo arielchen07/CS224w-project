@@ -295,6 +295,8 @@ for epoch in range(num_epochs):
         # Process the predictions
         predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
 
+        print(f"predicted_ordering: {predicted_ordering.shape}")
+        print(f"waypoints_correct: {waypoints_correct.shape}")
         # Compute loss
         # loss = loss_fn(predicted_ordering, waypoints_correct.float())
         loss = loss_fn(predicted_ordering, waypoints_correct.view(-1))
