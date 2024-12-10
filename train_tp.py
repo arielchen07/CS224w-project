@@ -178,6 +178,38 @@ def pairwise_ranking_loss(predicted_ordering, correct_ordering, margin=1.0):
     # Return mean loss
     return loss.sum() / (batch_size * (seq_len * (seq_len - 1)))
 
+def run_evaluate(model, loader):
+    model.eval()
+
+    total_loss = 0
+    num_batches = 0
+
+    for batch in loader:
+        start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
+
+        with torch.no_grad():
+            predicted_ordering = model(
+                graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled
+            )
+
+            predicted_ordering = predicted_ordering * 8
+
+            # Process the predictions
+            predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
+
+            # Compute loss
+            loss = loss_fn(predicted_ordering, waypoints_correct.float())
+
+            # Accumulate loss for tracking
+            total_loss += loss.item()
+            num_batches += 1
+
+    # Print epoch loss
+    avg_loss = total_loss / num_batches
+    print(f"Validation Loss: {avg_loss:.4f}")
+
+    return avg_loss
+
 
 # Load data and graph
 batch_size = 32
@@ -197,11 +229,9 @@ if os.path.exists('gttp.pth'):
 else:
     if os.path.exists('gtn.pth'):
         model.gtn.load_state_dict(torch.load('gtn.pth'))
-        
-model.gtn.eval()
+
 
 model = model.to(device)
-model.train()
 
 # Define optimizer
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -216,10 +246,13 @@ loss_fn = nn.MSELoss()
 # for batch in train_loader:
 #     break
 
-min_loss = 1e9
+min_val_loss = run_evaluate(model, val_loader)
 
 # Training loop
 for epoch in range(num_epochs):
+
+    model.train()
+    model.gtn.eval()
 
     total_loss = 0
     num_batches = 0
@@ -262,7 +295,9 @@ for epoch in range(num_epochs):
     avg_loss = total_loss / num_batches
     print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
 
-    if avg_loss < min_loss:
-        min_loss = avg_loss
+    val_loss = run_evaluate(model, val_loader)
+
+    if val_loss < min_val_loss:
+        min_val_loss = val_loss
         torch.save(model.state_dict(), 'gttp.pth')
-        print(f"Model saved with loss: {min_loss}")
+        print(f"Model saved with loss: {min_val_loss}")
