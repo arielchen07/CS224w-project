@@ -266,8 +266,9 @@ optimizer = optim.Adam(model.parameters(), lr=1e-4)
 num_epochs = 10000
 
 # Define a proper loss function
-loss_fn = pairwise_ranking_loss
+# loss_fn = pairwise_ranking_loss
 # loss_fn = nn.MSELoss()
+loss_fn = nn.CrossEntropyLoss()
 
 min_val_loss = run_evaluate(model, val_loader)
 
@@ -295,7 +296,9 @@ for epoch in range(num_epochs):
         predicted_ordering = predicted_ordering[:, 2:].squeeze(2)
 
         # Compute loss
-        loss = loss_fn(predicted_ordering, waypoints_correct.float())
+        # loss = loss_fn(predicted_ordering, waypoints_correct.float())
+        loss = loss_fn(predicted_ordering.view(-1, len(predicted_ordering)), waypoints_correct.view(-1))
+
 
         # Backpropagation
         optimizer.zero_grad()
