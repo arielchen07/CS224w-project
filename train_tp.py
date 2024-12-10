@@ -172,7 +172,9 @@ class TransformerPathPredictor(nn.Module):
         print(embeddings.shape)
         print(self.positional_encoding.shape)
         # Apply positional encoding
-        src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
+        # src = embeddings + self.positional_encoding[:, :embeddings.size(0), :]
+        src = embeddings + self.positional_encoding.expand(embeddings.size(0), -1, -1)
+
         src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
         
         if target_sequence is not None and teacher_forcing:
