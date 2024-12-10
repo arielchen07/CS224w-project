@@ -147,6 +147,7 @@ class GTTP(nn.Module):
         print("waypoint_node_order", waypoint_node_order.shape)
         pred = self.node_transformer_model(waypoint_node_embeds, waypoint_node_order)
         
+        print("pred", pred.shape)
 
         return pred
 
