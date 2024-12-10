@@ -106,5 +106,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     os.makedirs(args.savePath, exist_ok=True)
-    for num in tqdm(range(args.numPath)):
+    for num in tqdm(range(570, args.numPath)):
         calculatePath(args.minWayPoints, args.maxWayPoints, num, args.savePath)
