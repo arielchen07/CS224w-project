@@ -183,16 +183,17 @@ class TransformerPathPredictor(nn.Module):
         src = src.unsqueeze(1)  # Transformer expects (seq_len, batch, embedding_dim)
         
         if target_sequence is not None and teacher_forcing:
-            tgt_embeddings = self.embedding_dim[target_sequence]
-            tgt = tgt_embeddings + self.positional_encoding[:, :target_sequence.size(0), :]
+            # Get the embeddings for the target sequence (should be of shape [batch_size, seq_len, embedding_dim])
+            tgt_embeddings = self.embedding_dim[target_sequence].squeeze()  # Ensure correct shape
+            tgt = tgt_embeddings + self.positional_encoding.expand(tgt_embeddings.size(0), -1, -1)
         else:
             tgt = torch.zeros_like(src)  # Decoder input during inference
-        
+
         print("tgt", tgt.shape)
 
         # Transformer forward pass
         transformer_output = self.transformer(src, tgt)
-        
+
         print("transformer_output", transformer_output.shape)
 
         # Predict node indices
