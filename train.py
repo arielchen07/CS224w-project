@@ -43,11 +43,14 @@ if __name__ == "__main__":
 
     set_deterministic(100)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    os.makedirs("trained_models", exist_ok=True)
 
     modes = ["mlp_only", "gnn_embedding", "anchor_points_feature"]
-    mode = "mlp_only"
+    mode = "gnn_embedding"
 
-    graph_path = "data/ev.pbf"
+    model_file = f"trained_models/{mode}.pt"
+
+    graph_path = "data/stanford.pbf"
     graph, node_id_to_idx = construct_graph(graph_path)
 
     graph.x = normalize_features(graph.x)
@@ -59,7 +62,7 @@ if __name__ == "__main__":
 
     # Load data and graph
     batch_size = 64
-    route_dir = "dataprocessing/outEv"
+    route_dir = "dataprocessing/out"
     train_dataset, val_dataset, test_dataset = load_path_data(route_dir=route_dir, node_id_to_idx=node_id_to_idx)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -67,7 +70,6 @@ if __name__ == "__main__":
     print(f"train_dataset length: {len(train_dataset)}")
     print(f"val_dataset length: {len(val_dataset)}")
     writer = SummaryWriter(log_dir=f'runs/{mode}')
-
 
     embed_dim = 256
     gtn_hidden_dim = 256
@@ -81,13 +83,16 @@ if __name__ == "__main__":
     model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=5, dropout=0.1, disable_gnn=disable_gnn)
     model = model.to(device)
 
+    if os.path.exists(model_file):
+        model.load_state_dict(torch.load(model_file))
+
     # Define optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     # Define the number of epochs
     num_epochs = 10000
 
-    run_evaluate(model, graph, val_loader, device="cuda")
+    _, highest_val_acc = run_evaluate(model, graph, val_loader, device="cuda")
 
     # Training loop
     for epoch in range(num_epochs):
@@ -120,14 +125,13 @@ if __name__ == "__main__":
                     preds = model(graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled[:, i], waypoints_shuffled[:, j])
 
                     loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
+                    loss.backward()
 
                     acc_loss += loss * start_idx.size(0)
                     num_samples += start_idx.size(0)
-
-            loss.backward()
-
-            # # Gradient clipping
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             optimizer.step()
 
@@ -139,6 +143,10 @@ if __name__ == "__main__":
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
 
         val_loss, val_acc = run_evaluate(model, graph, val_loader, device="cuda")
+
+        if val_acc > highest_val_acc:
+            highest_val_acc = val_acc
+            torch.save(model.state_dict(), model_file)
 
         if epoch % 10 == 0:
             log_metrics(epoch, train_loss=avg_loss, val_loss=val_loss, val_acc=val_acc)
