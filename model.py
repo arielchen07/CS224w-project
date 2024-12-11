@@ -45,6 +45,12 @@ class GTN(torch.nn.Module):
             conv.reset_parameters()
         for norm in self.norms:
             norm.reset_parameters()
+        for layer in self.mlp:
+            if isinstance(layer, torch.nn.Linear):
+                torch.nn.init.xavier_uniform_(layer.weight)
+                torch.nn.init.zeros_(layer.bias)
+        torch.nn.init.xavier_uniform_(self.input_proj.weight)
+        torch.nn.init.zeros_(self.input_proj.bias)
 
 
     def forward(self, x, edge_index, edge_attr):
@@ -56,13 +62,13 @@ class GTN(torch.nn.Module):
         """
 
         input_x = x
-
+        
         for i in range(self.num_layers - 1):
 
             x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
-            x = self.norms[i](x)  # Layer normalization
             x = F.relu(x)  # Non-linear activation
-            x = F.dropout(x, p=self.dropout)  # Dropout
+            x = self.norms[i](x)  # Layer normalization
+            x = F.dropout(x, p=self.dropout, training=self.training)  # Dropout
 
         # Last layer, no residual connection
         x = self.convs[-1](x, edge_index, edge_attr)
@@ -102,20 +108,20 @@ class GTN(torch.nn.Module):
 
 
 class NodeTransformer(nn.Module):
-    def __init__(self, embed_dim, dropout=0.1):
+    def __init__(self, embed_dim, hidden_dim=128, dropout=0.1):
         super(NodeTransformer, self).__init__()
         
         # LayerNorm to stabilize the output
         self.mlp = nn.Sequential(
-            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.Linear(embed_dim * 4, hidden_dim),
             nn.ReLU(),
-            nn.LayerNorm(embed_dim * 2),
+            nn.LayerNorm(hidden_dim),
             nn.Dropout(dropout),
-            nn.Linear(embed_dim * 2, embed_dim),
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
         )
 
-        self.head = nn.Linear(embed_dim, 1)
+        self.head = nn.Linear(hidden_dim, 1)
 
 
     def forward(self, x_1, x_2, start_node_embed, end_node_embed):
@@ -125,7 +131,6 @@ class NodeTransformer(nn.Module):
 
         # Concatenate fixed nodes with the variable-length sequence
         nodes = torch.cat([start_node_embed, end_node_embed, x_1, x_2], dim=1)  # Shape: (batch_size, 2, embed_dim)
-        
         x = nodes
         x = self.mlp(x)
         x = self.head(x)
@@ -134,16 +139,23 @@ class NodeTransformer(nn.Module):
 
 
 class GTTP(nn.Module):
-    def __init__(self, input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1):
+    def __init__(self, input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1, disable_gnn=False):
         super(GTTP, self).__init__()
+        self.disable_gnn = disable_gnn
 
-        self.gtn = GTN(input_dim=input_dim, hidden_dim=gtn_hidden_dim, output_dim=embed_dim, num_layers=gtn_layers, dropout=dropout, beta=True, heads=1)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim)
+        if self.disable_gnn:
+            self.node_transformer_model = NodeTransformer(embed_dim=input_dim)
+        else:
+            self.gtn = GTN(input_dim=input_dim, hidden_dim=gtn_hidden_dim, output_dim=embed_dim, num_layers=gtn_layers, dropout=dropout, beta=True, heads=1)
+            self.node_transformer_model = NodeTransformer(embed_dim=embed_dim)
 
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, x_1, x_2):
 
-        node_embeddings = self.gtn(x, edge_index, edge_attr)
+        if self.disable_gnn:
+            node_embeddings = x
+        else:
+            node_embeddings = self.gtn(x, edge_index, edge_attr)
         start_node_embed = node_embeddings[start_idx].unsqueeze(1)
         end_node_embed = node_embeddings[end_idx].unsqueeze(1)
         x_1_embedding = node_embeddings[x_1]

@@ -67,8 +67,8 @@ def printPath(
 
 def calculatePath(minNum, maxNum, saveId, savePath):
     """Given custom WaypointsShortestPathProblem, find the minimun path and prepare visualization."""
-    # cityMap = createMap("../data/stanford.pbf")
-    cityMap = createGridMap(10, 10)
+    cityMap = createMap("../data/ev.pbf")
+    # cityMap = createGridMap(10, 10)
     startLocation, waypointTags, endTag = generateRandomPath(cityMap, minWayPoints=minNum, maxWayPoints=maxNum)
     problem = WaypointsShortestPathProblem(startLocation, tuple(sorted(waypointTags)), str(endTag), cityMap)
 

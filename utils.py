@@ -146,10 +146,10 @@ class PathDataset(Dataset):
             with open(f, 'r') as json_file:
                 route_info = json.load(json_file)
 
-            start_id = route_info["start"]
-            end_id = route_info["end"]
+            start_id = int(route_info["start"])
+            end_id = int(route_info["end"])
             waypoint_tags = route_info["waypointTags"]
-            waypoint_ids = [tag.split('=')[1] for tag in waypoint_tags]
+            waypoint_ids = [int(tag.split('=')[1]) for tag in waypoint_tags]
 
             try:
                 start_idx = self.node_id_to_idx[start_id]
@@ -159,9 +159,10 @@ class PathDataset(Dataset):
                 if len(waypoints_correct) != 6:
                     continue
 
-            except KeyError:
+            except KeyError as e:
+                print(f"KeyError: {e}")
                 continue
-
+                
             samples.append({
                 "start_idx": start_idx,
                 "waypoints_correct": waypoints_correct,
@@ -204,6 +205,7 @@ def load_path_data(route_dir: str, node_id_to_idx: dict, train_ratio=0.8, val_ra
     torch.manual_seed(seed)
 
     route_files = [os.path.join(route_dir, f) for f in os.listdir(route_dir) if f.endswith('.json')]
+    
     full_dataset = PathDataset(route_files, node_id_to_idx)
     dataset_len = len(full_dataset)
     train_len = int(dataset_len * train_ratio)
@@ -237,48 +239,49 @@ def normalize_features(features, a=0.0, b=1.0):
 
 
 def run_evaluate(model, graph, loader, device="cuda"):
-        model.eval()
+    model.eval()
 
-        total_loss = 0
-        num_batches = 0
-        total_num = 0
-        correct_num = 0
+    total_loss = 0
+    total_num = 0
+    correct_num = 0
+    num_samples = 0
 
-        for batch in loader:
+    for batch in loader:
 
-            start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
+        start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
 
-            num_waypoints = waypoints_shuffled.size(1)
+        num_waypoints = waypoints_shuffled.size(1)
 
-            for i in range(num_waypoints):
-                for j in range(num_waypoints):
+        num_samples += start_idx.size(0)
 
-                    if i == j:
-                        continue
+        for i in range(num_waypoints):
+            for j in range(num_waypoints):
 
-                    with torch.no_grad():
-                        
-                        labels = waypoints_correct[:, i] < waypoints_correct[:, j]
-                        
-                        preds = model(graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled[:, i], waypoints_shuffled[:, j])
+                if i == j:
+                    continue
 
-                        loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
+                with torch.no_grad():
+                    
+                    labels = waypoints_correct[:, i] < waypoints_correct[:, j]
+                    
+                    preds = model(graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled[:, i], waypoints_shuffled[:, j])
 
-                        preds = torch.sigmoid(preds).squeeze(1)
-                        preds = (preds > 0.5).float()
-                        correct_num += (preds == labels).sum().item()
-                        total_num += len(labels)
+                    loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
 
-                # Accumulate loss for tracking
-                total_loss += loss.item()
-                num_batches += 1
+                    preds = torch.sigmoid(preds).squeeze(1)
+                    preds = (preds > 0.5).float()
+                    correct_num += (preds == labels).sum().item()
+                    total_num += len(labels)
 
-        # Print epoch loss
-        avg_loss = total_loss / num_batches
-        print(f"Validation Loss: {avg_loss:.4f}")
-        print(f"Validation Accuracy: {correct_num / total_num:.4f}")
+            # Accumulate loss for tracking
+            total_loss += loss.item()
 
-        return avg_loss
+    avg_loss = total_loss / num_samples
+    # Print epoch loss
+    print(f"Validation Loss: {avg_loss:.4f}")
+    print(f"Validation Accuracy: {correct_num / total_num:.4f}")
+
+    return total_loss
 
 
 def set_deterministic(seed=42):
@@ -298,7 +301,7 @@ def construct_small_graph(mode):
         for j in range(10):
 
             if mode in ["same_embedding", "gnn_embedding", "pretrain_gnn_embedding"]:
-                nodes.append([0, 0])
+                nodes.append([random.random() * 10, random.random() * 10])
             elif mode == "coord_feature":
                 nodes.append([i, j])
             else:

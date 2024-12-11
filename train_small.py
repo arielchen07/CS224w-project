@@ -10,6 +10,7 @@ from torch_geometric.nn import TransformerConv
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_adj
 from torch.utils.data import Dataset, DataLoader, random_split
+from torch_geometric.loader import NeighborLoader
 import torch.nn.functional as F
 import torch.nn as nn
 import torch.optim as optim
@@ -17,7 +18,7 @@ import torch
 import random
 import numpy as np
 
-from utils import load_path_data, normalize_features, set_deterministic, construct_small_graph, run_evaluate
+from utils import load_path_data, normalize_features, set_deterministic, construct_small_graph, run_evaluate, construct_graph
 from model import GTTP
 
 if __name__ == "__main__":
@@ -25,10 +26,11 @@ if __name__ == "__main__":
     set_deterministic(0)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    modes = ["same_embedding", "gnn_embedding", "pretrain_gnn_embedding", "coord_feature", "anchor_points_feature"]
-    mode = "gnn_embedding"
+    modes = ["mlp_only", "gnn_embedding", "anchor_points_feature"]
+    mode = "mlp_only"
 
-    graph, node_id_to_idx = construct_small_graph(mode)
+    graph_path = "data/ev.pbf"
+    graph, node_id_to_idx = construct_graph(graph_path)
 
     graph.x = normalize_features(graph.x)
     graph.edge_attr = normalize_features(graph.edge_attr)
@@ -39,8 +41,9 @@ if __name__ == "__main__":
 
     # Load data and graph
     batch_size = 64
-    route_dir = "dataprocessing/outSmall"
+    route_dir = "dataprocessing/outEv"
     train_dataset, val_dataset, test_dataset = load_path_data(route_dir=route_dir, node_id_to_idx=node_id_to_idx)
+
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     print(f"train_dataset length: {len(train_dataset)}")
@@ -48,13 +51,14 @@ if __name__ == "__main__":
 
     embed_dim = 256
     gtn_hidden_dim = 256
+    disable_gnn = mode == "mlp_only"
 
-    if mode in ["same_embedding", "gnn_embedding", "pretrain_gnn_embedding", "coord_feature"]:
+    if mode in ["mlp_only", "gnn_embedding"]:
         input_dim = 2
     else:
         input_dim = 2 + 100
 
-    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1)
+    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=5, dropout=0.1, disable_gnn=disable_gnn)
     model = model.to(device)
 
     # Define optimizer
@@ -71,13 +75,18 @@ if __name__ == "__main__":
         model.train()
 
         total_loss = 0
-        num_batches = 0
+        num_samples = 0
 
         for batch in train_loader:
 
             start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
 
             num_waypoints = waypoints_shuffled.size(1)
+
+            acc_loss = 0
+
+            # Backpropagation
+            optimizer.zero_grad()
 
             for i in range(num_waypoints):
                 for j in range(i + 1, num_waypoints):
@@ -89,8 +98,8 @@ if __name__ == "__main__":
 
                     loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
 
-            # Backpropagation
-            optimizer.zero_grad()
+                    acc_loss += loss
+
             loss.backward()
 
             # Gradient clipping
@@ -99,12 +108,12 @@ if __name__ == "__main__":
             optimizer.step()
 
             # Accumulate loss for tracking
-            total_loss += loss.item()
-            num_batches += 1
+            total_loss += acc_loss.item()
+                
+            num_samples += 1
 
         # Print epoch loss
-        avg_loss = total_loss / num_batches
+        avg_loss = total_loss / num_samples
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
-
         run_evaluate(model, graph, val_loader, device="cuda")
 
