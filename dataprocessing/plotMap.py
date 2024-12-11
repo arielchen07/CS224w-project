@@ -5,9 +5,18 @@ from typing import List
 import plotly.express as px
 import plotly.graph_objects as go
 
-from mapUtil import CityMap, readMap, createMap
+from mapUtil import CityMap, readMap, createMap, createGridMap
 from calculatePath import extractPath
 from searchUtil import ShortestPathProblem, UniformCostSearch
+
+def getTotalCost(path: List[str], cityMap: CityMap) -> float:
+    """
+    Return the length of a given path
+    """
+    cost = 0.0
+    for i in range(len(path) - 1):
+        cost += cityMap.distances[path[i]][path[i + 1]]
+    return cost
 
 
 def plotMap(cityMap: CityMap, path: List[str], waypointTags: List[str], mapName: str):
@@ -143,6 +152,10 @@ def getCompletePath(start, wayPoints, end, stanfordCalMap):
         problem = ShortestPathProblem(startLocation=currStart, endTag=currEnd, cityMap=stanfordCalMap)
         usc.solve(problem)
         currPath = extractPath(problem.startLocation, usc)
+        
+        # Here is an example
+        currPathCost = getTotalCost(currPath, stanfordCalMap)
+
         resultPath += currPath[:-1]
         currStart = currEnd.split('=')[1]
     
@@ -178,6 +191,7 @@ if __name__ == "__main__":
     stanfordMapName = args.map_file.split("/")[-1].split("_")[0]
     stanfordCityMap = readMap(args.map_file)
     stanfordCalMap = createMap(args.map_file)
+    # stanfordCityMap = createGridMap(10, 10)
 
     if args.mode == "plot_empty":
         plotEmptyMap(
