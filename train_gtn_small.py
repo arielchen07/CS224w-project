@@ -101,20 +101,20 @@ class GTN(torch.nn.Module):
 
         # return x
 
-        input_x = x
+        # input_x = x
 
-        for i in range(self.num_layers - 1):
+        # for i in range(self.num_layers - 1):
 
-            x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
-            x = self.norms[i](x)  # Layer normalization
-            x = F.relu(x)  # Non-linear activation
-            x = F.dropout(x, p=self.dropout)  # Dropout
+        #     x = self.convs[i](x, edge_index, edge_attr)  # Graph convolution
+        #     x = self.norms[i](x)  # Layer normalization
+        #     x = F.relu(x)  # Non-linear activation
+        #     x = F.dropout(x, p=self.dropout)  # Dropout
 
-        # Last layer, no residual connection
-        x = self.convs[-1](x, edge_index, edge_attr)
+        # # Last layer, no residual connection
+        # x = self.convs[-1](x, edge_index, edge_attr)
         
-        x = self.mlp(x)
-        x = torch.cat([input_x, x], dim=-1)
+        # x = self.mlp(x)
+        # x = torch.cat([input_x, x], dim=-1)
 
         return x
 

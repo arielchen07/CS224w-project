@@ -43,11 +43,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 nodes = []
 for i in range(10):
     for j in range(10):
-        nodes.append([i, j])
+        nodes.append([1, 1])
 
-        for ii in range(10):
-            for jj in range(10):
-                nodes[-1].append(abs(ii-i) + abs(jj-j))
+        # for ii in range(10):
+        #     for jj in range(10):
+        #         nodes[-1].append(abs(ii-i) + abs(jj-j))
 
 x = torch.tensor(nodes, dtype=torch.float)
 
@@ -100,7 +100,7 @@ class NodeTransformer(nn.Module):
 
         # Concatenate fixed nodes with the variable-length sequence
         nodes = torch.cat([start_node_embed, end_node_embed, x_1, x_2], dim=1)  # Shape: (batch_size, 2, embed_dim)
-
+        
         x = nodes
         x = self.mlp(x)
         x = self.head(x)
@@ -111,12 +111,13 @@ class GTTP(nn.Module):
     def __init__(self):
         super(GTTP, self).__init__()
 
-        embed_dim = 512
+        embed_dim = 256
         ff_dim = embed_dim
         hidden_dim = embed_dim
 
-        self.gtn = GTN(input_dim=2+100, hidden_dim=embed_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim)
+        # self.gtn = GTN(input_dim=2+100, hidden_dim=embed_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
+        self.gtn = GTN(input_dim=2, hidden_dim=embed_dim, output_dim=embed_dim, num_layers=3, dropout=0.1, beta=True, heads=1)
+        self.node_transformer_model = NodeTransformer(embed_dim=2)
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, x_1, x_2):
 
@@ -210,6 +211,11 @@ min_val_loss = run_evaluate(model, val_loader)
 for epoch in range(num_epochs):
 
     model.train()
+
+    # for param in model.gtn.parameters():
+    #     param.requires_grad = False
+
+    # model.gtn.eval()
 
     total_loss = 0
     num_batches = 0
