@@ -50,11 +50,14 @@ if __name__ == "__main__":
     os.makedirs("trained_models", exist_ok=True)
     os.makedirs("graph_cache", exist_ok=True)
 
-    modes = ["mlp_only", "gnn_embedding", "anchor_points_feature"]
-    mode = "gnn_embedding"
+    num_anchor_points = 10
+
+    if num_anchor_points > 0:
+        mode = f"anchor_points_feature_{num_anchor_points}"
+    else:
+        mode = "gnn_embedding"
 
     model_file = f"trained_models/{mode}.pt"
-    num_anchor_points = 10
 
     graph_path = "data/stanford.pbf"
     graph_fname = graph_path.split("/")[-1].split(".")[0]
@@ -86,15 +89,14 @@ if __name__ == "__main__":
     writer = SummaryWriter(log_dir=f'runs/{mode}')
 
     embed_dim = 128
-    gtn_hidden_dim = 256
-    disable_gnn = mode == "mlp_only"
+    gtn_hidden_dim = 32
 
-    if mode in ["mlp_only", "gnn_embedding"]:
+    if mode == "gnn_embedding":
         input_dim = 2
-    else:
-        input_dim = 2 + 100
+    elif "anchor_points_feature" in mode:
+        input_dim = 2 + num_anchor_points
 
-    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1, disable_gnn=disable_gnn)
+    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1)
     model = model.to(device)
 
     if os.path.exists(model_file):

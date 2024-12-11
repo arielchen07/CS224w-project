@@ -156,7 +156,8 @@ def construct_graph(osmPath: str, num_anchor_points: int=0):
 
         stanfordCalMap = createMap(osmPath)
 
-        for i in range(len(mapCreator.nodes)):
+        import tqdm
+        for i in tqdm.tqdm(range(len(mapCreator.nodes))):
             currStart = str(mapCreator.idx_to_node_id[i])
             dist_to_anchor_points = []
             for idx in mapCreator.anchor_points_idxs:
@@ -172,11 +173,7 @@ def construct_graph(osmPath: str, num_anchor_points: int=0):
                 # xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
                 dist_to_anchor_points.append(currPathCost)
             
-            print(dist_to_anchor_points)
-
             mapCreator.nodes[i].extend(dist_to_anchor_points)
-
-        exit(0)
 
     x = torch.tensor(mapCreator.nodes, dtype=torch.float)
     edge_index = torch.tensor(mapCreator.edges, dtype=torch.long)
@@ -188,7 +185,7 @@ def construct_graph(osmPath: str, num_anchor_points: int=0):
 
 class PathDataset(Dataset):
 
-    def __init__(self, route_files: List[str], node_id_to_idx: dict, fixed_length: int = 6):
+    def __init__(self, route_files: List[str], node_id_to_idx: dict, fixed_length: int = 8):
         self.route_files = route_files
         self.node_id_to_idx = node_id_to_idx
         self.fixed_length = fixed_length
@@ -210,11 +207,10 @@ class PathDataset(Dataset):
                 end_idx = self.node_id_to_idx[end_id]
                 waypoints_correct = [self.node_id_to_idx[w_id] for w_id in waypoint_ids]
 
-                if len(waypoints_correct) < 1:
+                if len(waypoints_correct) != 8:
                     continue
 
             except KeyError as e:
-                print(f"KeyError: {e}")
                 continue
                 
             samples.append({
