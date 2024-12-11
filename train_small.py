@@ -17,9 +17,27 @@ import torch.optim as optim
 import torch
 import random
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 from utils import load_path_data, normalize_features, set_deterministic, construct_small_graph, run_evaluate, construct_graph
 from model import GTTP
+
+def log_metrics(epoch, train_loss, val_loss, val_acc):
+    """
+    Logs training and validation losses to TensorBoard.
+
+    Parameters:
+    - epoch (int): Current epoch number
+    - train_loss (float): The training loss for the current epoch
+    - val_loss (float): The validation loss for the current epoch
+    - val_acc (float): The validation accuracy for the current epoch
+    """
+    # Log the losses for train and validation
+    # writer.add_scalar('Loss/train', train_loss, epoch)
+    # writer.add_scalar('Loss/validation', val_loss, epoch)
+    writer.add_scalars('Loss', {'train': train_loss, 'validation': val_loss}, epoch)
+    writer.add_scalar('Accuracy/validation', val_acc, epoch)
+
 
 if __name__ == "__main__":
 
@@ -48,6 +66,8 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     print(f"train_dataset length: {len(train_dataset)}")
     print(f"val_dataset length: {len(val_dataset)}")
+    writer = SummaryWriter(log_dir=f'runs/{mode}')
+
 
     embed_dim = 256
     gtn_hidden_dim = 256
@@ -118,4 +138,10 @@ if __name__ == "__main__":
         avg_loss = total_loss / num_samples
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
 
-        run_evaluate(model, graph, val_loader, device="cuda")
+        val_loss, val_acc = run_evaluate(model, graph, val_loader, device="cuda")
+
+        if epoch % 10 == 0:
+            log_metrics(epoch, train_loss=avg_loss, val_loss=val_loss, val_acc=val_acc)
+
+    # Close the writer
+    writer.close()

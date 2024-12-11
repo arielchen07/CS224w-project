@@ -275,12 +275,13 @@ def run_evaluate(model, graph, loader, device="cuda"):
                     total_loss += loss.item() * start_idx.size(0)
                     num_samples += start_idx.size(0)
 
-    avg_loss = total_loss / num_samples
-    # Print epoch loss
-    print(f"Validation Loss: {avg_loss:.4f}")
-    print(f"Validation Accuracy: {correct_num / total_num:.4f}")
+        # Print epoch loss
+        avg_loss = total_loss / num_samples
+        avg_acc = correct_num / total_num
+        print(f"Validation Loss: {avg_loss:.4f}")
+        print(f"Validation Accuracy: {avg_acc:.4f}")
 
-    return total_loss
+        return avg_loss, avg_acc
 
 
 def set_deterministic(seed=42):
