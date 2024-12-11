@@ -15,7 +15,7 @@ class GTN(torch.nn.Module):
         # Initialize transformer convolution layers with edge attributes
         conv_layers = [TransformerConv(input_dim, hidden_dim // heads, heads=heads, edge_dim=1, beta=beta)]
         conv_layers += [TransformerConv(hidden_dim, hidden_dim // heads, heads=heads, edge_dim=1, beta=beta) for _ in range(num_layers - 2)]
-        conv_layers.append(TransformerConv(hidden_dim, hidden_dim, heads=heads, edge_dim=1, beta=beta, concat=True))
+        conv_layers.append(TransformerConv(hidden_dim, hidden_dim, heads=heads, edge_dim=1, beta=beta, concat=False))
         self.convs = torch.nn.ModuleList(conv_layers)
 
         self.mlp = torch.nn.Sequential(
@@ -23,10 +23,10 @@ class GTN(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.LayerNorm(hidden_dim),
             torch.nn.Dropout(dropout),
-            torch.nn.Linear(hidden_dim, output_dim)
+            torch.nn.Linear(hidden_dim, output_dim - input_dim)
         )
 
-        self.input_proj = torch.nn.Linear(input_dim, output_dim)
+        # self.input_proj = torch.nn.Linear(input_dim, output_dim)
 
         # Initialize LayerNorm layers for normalization
         norm_layers = [torch.nn.LayerNorm(hidden_dim) for _ in range(num_layers - 1)]
@@ -45,12 +45,6 @@ class GTN(torch.nn.Module):
             conv.reset_parameters()
         for norm in self.norms:
             norm.reset_parameters()
-        for layer in self.mlp:
-            if isinstance(layer, torch.nn.Linear):
-                torch.nn.init.xavier_uniform_(layer.weight)
-                torch.nn.init.zeros_(layer.bias)
-        torch.nn.init.xavier_uniform_(self.input_proj.weight)
-        torch.nn.init.zeros_(self.input_proj.bias)
 
 
     def forward(self, x, edge_index, edge_attr):
@@ -74,7 +68,7 @@ class GTN(torch.nn.Module):
         x = self.convs[-1](x, edge_index, edge_attr)
         
         x = self.mlp(x)
-        x = x + self.input_proj(input_x)
+        x = torch.cat([input_x, x], dim=-1)
 
         return x
 
@@ -139,16 +133,15 @@ class NodeTransformer(nn.Module):
 
 
 class GTTP(nn.Module):
-    def __init__(self, input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1, disable_gnn=False):
+    def __init__(self, input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1, gtn_heads=1, disable_gnn=False):
         super(GTTP, self).__init__()
         self.disable_gnn = disable_gnn
 
         if self.disable_gnn:
             self.node_transformer_model = NodeTransformer(embed_dim=input_dim)
         else:
-            self.gtn = GTN(input_dim=input_dim, hidden_dim=gtn_hidden_dim, output_dim=embed_dim, num_layers=gtn_layers, dropout=dropout, beta=True, heads=1)
+            self.gtn = GTN(input_dim=input_dim, hidden_dim=gtn_hidden_dim, output_dim=embed_dim, num_layers=gtn_layers, dropout=dropout, beta=True, heads=gtn_heads)
             self.node_transformer_model = NodeTransformer(embed_dim=embed_dim)
-
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, x_1, x_2):
 
@@ -156,6 +149,7 @@ class GTTP(nn.Module):
             node_embeddings = x
         else:
             node_embeddings = self.gtn(x, edge_index, edge_attr)
+            
         start_node_embed = node_embeddings[start_idx].unsqueeze(1)
         end_node_embed = node_embeddings[end_idx].unsqueeze(1)
         x_1_embedding = node_embeddings[x_1]

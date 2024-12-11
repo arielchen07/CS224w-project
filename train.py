@@ -80,17 +80,17 @@ if __name__ == "__main__":
     else:
         input_dim = 2 + 100
 
-    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=5, dropout=0.1, disable_gnn=disable_gnn)
+    model = GTTP(input_dim, gtn_hidden_dim, embed_dim, gtn_layers=3, dropout=0.1, disable_gnn=disable_gnn)
     model = model.to(device)
 
     if os.path.exists(model_file):
         model.load_state_dict(torch.load(model_file))
 
     # Define optimizer
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=1e-5)
 
     # Define the number of epochs
-    num_epochs = 10000
+    num_epochs = 1000
 
     _, highest_val_acc = run_evaluate(model, graph, val_loader, device="cuda")
 
@@ -148,8 +148,7 @@ if __name__ == "__main__":
             highest_val_acc = val_acc
             torch.save(model.state_dict(), model_file)
 
-        if epoch % 10 == 0:
-            log_metrics(epoch, train_loss=avg_loss, val_loss=val_loss, val_acc=val_acc)
+        log_metrics(epoch, train_loss=avg_loss, val_loss=val_loss, val_acc=val_acc)
 
     # Close the writer
     writer.close()
