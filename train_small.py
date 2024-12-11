@@ -19,6 +19,9 @@ import random
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
+import sys
+sys.path.append(os.path.abspath('./dataprocessing'))
+
 from utils import load_path_data, normalize_features, set_deterministic, construct_small_graph, run_evaluate, construct_graph
 from model import GTTP
 

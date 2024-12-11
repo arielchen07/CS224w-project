@@ -21,6 +21,10 @@ import torch
 import random
 import numpy as np
 # from torch_sparse import SparseTensor
+from mapUtil import CityMap, createMap
+from searchUtil import ShortestPathProblem, UniformCostSearch
+from calculatePath import extractPath
+# from plotMap import getTotalCost
 
 # Set the random seed for reproducibility
 seed = 42  # Replace with your desired seed
@@ -58,6 +62,16 @@ def xy_distance(lat1, lon1, lat2, lon2):
 
     return x_distance, y_distance
 
+def getTotalCost(path: List[str], cityMap: CityMap) -> float:
+    """
+    Return the length of a given path
+    """
+    cost = 0.0
+    for i in range(len(path) - 1):
+        print(cityMap.distances[path[i]][path[i + 1]])
+        cost += cityMap.distances[path[i]][path[i + 1]]
+    return cost
+
 
 def construct_graph(osmPath: str):
 
@@ -77,10 +91,16 @@ def construct_graph(osmPath: str):
             self.edges = [[], []]
             self.edge_dist = []
             self.node_id_to_idx = {}
+            self.node_idx_to_id = {}
             self.idx_to_node_id = {}
             self.id_counter = 0
 
             self.edge_dict = {}
+
+            self.anchor_points_idxs = []
+        
+        def generate_anchor_points(self):
+            self.anchor_points_idxs = random.sample(range(len(self.nodes)), 100)
 
         def node(self, n: osmium.osm.Node) -> None:
             # if len(self.nodes) < 1000:
@@ -88,6 +108,7 @@ def construct_graph(osmPath: str):
                 xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
                 self.nodes.append([xy[0], xy[1]])
                 self.node_id_to_idx[n.id] = self.id_counter
+                self.node_idx_to_id[self.id_counter] = n.id
                 self.idx_to_node_id[self.id_counter] = n.id
                 self.id_counter += 1
 
@@ -123,6 +144,31 @@ def construct_graph(osmPath: str):
 
     mapCreator = MapCreationHandler()
     mapCreator.apply_file(osmPath, locations=True)
+
+    mapCreator.generate_anchor_points()
+    print(len(mapCreator.anchor_points_idxs))
+
+    stanfordCalMap = createMap("./data/stanford.pbf")
+    usc = UniformCostSearch(verbose=0)
+
+    for i in range(len(mapCreator.nodes)):
+        currStart = mapCreator.idx_to_node_id[i]
+        node_ = []
+        for idx in mapCreator.anchor_points_idxs:
+            currEnd = mapCreator.idx_to_node_id[idx]
+            problem = ShortestPathProblem(startLocation=currStart, endTag=currEnd, cityMap=stanfordCalMap)
+            usc.solve(problem)
+            currPath = extractPath(problem.startLocation, usc)
+            print("currPath", currPath)
+            
+            # Here is an example
+            currPathCost = getTotalCost(currPath, stanfordCalMap)
+            print("currPathCost", currPathCost)
+
+            # xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
+            node_.append(currPathCost)
+        
+        mapCreator.nodes.append(node_)
 
     x = torch.tensor(mapCreator.nodes, dtype=torch.float)
     edge_index = torch.tensor(mapCreator.edges, dtype=torch.long)
