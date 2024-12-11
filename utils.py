@@ -36,6 +36,7 @@ R = 6371000
 
 anchor_point = (37.4340414, -122.17246)
 
+
 def xy_distance(lat1, lon1, lat2, lon2):
     """
     Calculate the x-distance (longitude) and y-distance (latitude) in meters
@@ -56,6 +57,7 @@ def xy_distance(lat1, lon1, lat2, lon2):
     x_distance = delta_lon * R * cos((lat1 + lat2) / 2)  # Adjust for latitude
 
     return x_distance, y_distance
+
 
 def construct_graph(osmPath: str):
 
@@ -129,6 +131,7 @@ def construct_graph(osmPath: str):
 
     return data, mapCreator.node_id_to_idx
 
+
 class PathDataset(Dataset):
 
     def __init__(self, route_files: List[str], node_id_to_idx: dict, fixed_length: int = 6):
@@ -195,6 +198,7 @@ class PathDataset(Dataset):
 
         return start_idx, waypoints_shuffled_tensor, shuffled_order_tensor, end_idx
     
+
 def load_path_data(route_dir: str, node_id_to_idx: dict, train_ratio=0.8, val_ratio=0.1, seed=42):
 
     torch.manual_seed(seed)
@@ -218,6 +222,7 @@ def load_path_data(route_dir: str, node_id_to_idx: dict, train_ratio=0.8, val_ra
 
     return train_dataset, val_dataset, test_dataset
 
+
 def normalize_features(features, a=0.0, b=1.0):
     min_val = features.min()
     max_val = features.max()
@@ -229,3 +234,108 @@ def normalize_features(features, a=0.0, b=1.0):
     # Min-max normalization to range [a, b]
     normalized_features = a + (features - min_val) * (b - a) / (max_val - min_val)
     return normalized_features
+
+
+def run_evaluate(model, graph, loader, device="cuda"):
+        model.eval()
+
+        total_loss = 0
+        num_batches = 0
+        total_num = 0
+        correct_num = 0
+
+        for batch in loader:
+
+            start_idx, waypoints_shuffled, waypoints_correct, end_idx = [x.to(device) for x in batch]
+
+            num_waypoints = waypoints_shuffled.size(1)
+
+            for i in range(num_waypoints):
+                for j in range(num_waypoints):
+
+                    if i == j:
+                        continue
+
+                    with torch.no_grad():
+                        
+                        labels = waypoints_correct[:, i] < waypoints_correct[:, j]
+                        
+                        preds = model(graph.x, graph.edge_index, graph.edge_attr, start_idx, end_idx, waypoints_shuffled[:, i], waypoints_shuffled[:, j])
+
+                        loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
+
+                        preds = torch.sigmoid(preds).squeeze(1)
+                        preds = (preds > 0.5).float()
+                        correct_num += (preds == labels).sum().item()
+                        total_num += len(labels)
+
+                # Accumulate loss for tracking
+                total_loss += loss.item()
+                num_batches += 1
+
+        # Print epoch loss
+        avg_loss = total_loss / num_batches
+        print(f"Validation Loss: {avg_loss:.4f}")
+        print(f"Validation Accuracy: {correct_num / total_num:.4f}")
+
+        return avg_loss
+
+
+def set_deterministic(seed=42):
+    # Set the random seed for reproducibility
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # Enable deterministic mode
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def construct_small_graph(mode):
+    nodes = []
+    for i in range(10):
+        for j in range(10):
+
+            if mode in ["same_embedding", "gnn_embedding", "pretrain_gnn_embedding"]:
+                nodes.append([0, 0])
+            elif mode == "coord_feature":
+                nodes.append([i, j])
+            else:
+                nodes.append([i, j])
+                for ii in range(10):
+                    for jj in range(10):
+                        nodes[-1].append(abs(ii-i) + abs(jj-j))
+
+    x = torch.tensor(nodes, dtype=torch.float)
+
+    edge_index_list = []
+    edge_attr_list = []
+    for i in range(10):
+        for j in range(10):
+            if i < 9:
+                edge_index_list.append([i*10+j, (i+1)*10+j])
+                edge_attr_list.append(1.0)
+            if j < 9:
+                edge_index_list.append([i*10+j, i*10+j+1])
+                edge_attr_list.append(1.0)
+
+    edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
+    edge_attr = torch.tensor(edge_attr_list, dtype=torch.float).unsqueeze(1)
+
+    graph = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+
+    node_id_to_idx = {}
+
+    for i in range(10):
+        for j in range(10):
+            node_id_to_idx[f"{i},{j}"] = i*10+j
+
+    return graph, node_id_to_idx
+
+
+def get_adj_matrix(graph):
+    adj_matrix = torch.zeros((len(graph.x), len(graph.x)), dtype=torch.float32)
+    adj_matrix[graph.edge_index[0], graph.edge_index[1]] = 1.0
+
+    return adj_matrix

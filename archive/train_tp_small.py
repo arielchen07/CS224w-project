@@ -23,7 +23,7 @@ import numpy as np
 # from torch_sparse import SparseTensor
 
 from utils import construct_graph, load_path_data, normalize_features
-from train_gtn_small import GTN
+from model import GTN
 
 # Set the random seed for reproducibility
 seed = 42  # Replace with your desired seed
