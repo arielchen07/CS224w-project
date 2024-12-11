@@ -252,8 +252,6 @@ def run_evaluate(model, graph, loader, device="cuda"):
 
         num_waypoints = waypoints_shuffled.size(1)
 
-        num_samples += start_idx.size(0)
-
         for i in range(num_waypoints):
             for j in range(num_waypoints):
 
@@ -273,8 +271,9 @@ def run_evaluate(model, graph, loader, device="cuda"):
                     correct_num += (preds == labels).sum().item()
                     total_num += len(labels)
 
-            # Accumulate loss for tracking
-            total_loss += loss.item()
+                    # Accumulate loss for tracking
+                    total_loss += loss.item() * start_idx.size(0)
+                    num_samples += start_idx.size(0)
 
     avg_loss = total_loss / num_samples
     # Print epoch loss

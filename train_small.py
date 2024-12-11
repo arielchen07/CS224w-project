@@ -23,7 +23,7 @@ from model import GTTP
 
 if __name__ == "__main__":
 
-    set_deterministic(0)
+    set_deterministic(100)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     modes = ["mlp_only", "gnn_embedding", "anchor_points_feature"]
@@ -89,7 +89,10 @@ if __name__ == "__main__":
             optimizer.zero_grad()
 
             for i in range(num_waypoints):
-                for j in range(i + 1, num_waypoints):
+                for j in range(num_waypoints):
+
+                    if i == j:
+                        continue
 
                     waypoints_correct_cpy = waypoints_correct.clone().detach()
 
@@ -98,22 +101,21 @@ if __name__ == "__main__":
 
                     loss = F.binary_cross_entropy_with_logits(preds.squeeze(1), labels.float())
 
-                    acc_loss += loss
+                    acc_loss += loss * start_idx.size(0)
+                    num_samples += start_idx.size(0)
 
             loss.backward()
 
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # # Gradient clipping
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             optimizer.step()
 
             # Accumulate loss for tracking
             total_loss += acc_loss.item()
-                
-            num_samples += 1
 
         # Print epoch loss
         avg_loss = total_loss / num_samples
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
-        run_evaluate(model, graph, val_loader, device="cuda")
 
+        run_evaluate(model, graph, val_loader, device="cuda")
