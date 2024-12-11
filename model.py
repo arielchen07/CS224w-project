@@ -26,8 +26,6 @@ class GTN(torch.nn.Module):
             torch.nn.Linear(hidden_dim, output_dim - input_dim)
         )
 
-        # self.input_proj = torch.nn.Linear(input_dim, output_dim)
-
         # Initialize LayerNorm layers for normalization
         norm_layers = [torch.nn.LayerNorm(hidden_dim) for _ in range(num_layers - 1)]
         self.norms = torch.nn.ModuleList(norm_layers)

@@ -17,6 +17,7 @@ import torch.optim as optim
 import torch
 import random
 import numpy as np
+import pickle
 from torch.utils.tensorboard import SummaryWriter
 
 import sys
@@ -47,14 +48,24 @@ if __name__ == "__main__":
     set_deterministic(100)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     os.makedirs("trained_models", exist_ok=True)
+    os.makedirs("graph_cache", exist_ok=True)
 
     modes = ["mlp_only", "gnn_embedding", "anchor_points_feature"]
     mode = "gnn_embedding"
 
     model_file = f"trained_models/{mode}.pt"
+    num_anchor_points = 10
 
     graph_path = "data/stanford.pbf"
-    graph, node_id_to_idx = construct_graph(graph_path)
+    graph_fname = graph_path.split("/")[-1].split(".")[0]
+
+    if os.path.exists(f"graph_cache/{graph_fname}_{num_anchor_points}.pkl"):
+        with open(f"graph_cache/{graph_fname}_{num_anchor_points}.pkl", "rb") as f:
+            graph, node_id_to_idx = pickle.load(f)
+    else:
+        graph, node_id_to_idx = construct_graph(graph_path, num_anchor_points=num_anchor_points)
+        with open(f"graph_cache/{graph_fname}_{num_anchor_points}.pkl", "wb") as f:
+            pickle.dump((graph, node_id_to_idx), f)
 
     graph.x = normalize_features(graph.x)
     graph.edge_attr = normalize_features(graph.edge_attr)
@@ -74,7 +85,7 @@ if __name__ == "__main__":
     print(f"val_dataset length: {len(val_dataset)}")
     writer = SummaryWriter(log_dir=f'runs/{mode}')
 
-    embed_dim = 256
+    embed_dim = 128
     gtn_hidden_dim = 256
     disable_gnn = mode == "mlp_only"
 
@@ -90,7 +101,7 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(model_file))
 
     # Define optimizer
-    optimizer = optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=5e-4)
 
     # Define the number of epochs
     num_epochs = 1000

@@ -39,7 +39,7 @@ torch.backends.cudnn.benchmark = False
 R = 6371000  
 
 anchor_point = (37.4340414, -122.17246)
-
+anchor_node_id = "6239387643"
 
 def xy_distance(lat1, lon1, lat2, lon2):
     """
@@ -68,12 +68,11 @@ def getTotalCost(path: List[str], cityMap: CityMap) -> float:
     """
     cost = 0.0
     for i in range(len(path) - 1):
-        print(cityMap.distances[path[i]][path[i + 1]])
         cost += cityMap.distances[path[i]][path[i + 1]]
     return cost
 
 
-def construct_graph(osmPath: str):
+def construct_graph(osmPath: str, num_anchor_points: int=0):
 
     def compute_distance(lat1, lon1, lat2, lon2):
         phi1 = math.radians(lat1)
@@ -91,26 +90,33 @@ def construct_graph(osmPath: str):
             self.edges = [[], []]
             self.edge_dist = []
             self.node_id_to_idx = {}
-            self.node_idx_to_id = {}
             self.idx_to_node_id = {}
             self.id_counter = 0
-
             self.edge_dict = {}
+            self.map = createMap(osmPath)
 
             self.anchor_points_idxs = []
         
         def generate_anchor_points(self):
-            self.anchor_points_idxs = random.sample(range(len(self.nodes)), 100)
+            self.anchor_points_idxs = random.sample(range(len(self.nodes)), num_anchor_points)
 
         def node(self, n: osmium.osm.Node) -> None:
-            # if len(self.nodes) < 1000:
-            if True:
-                xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
-                self.nodes.append([xy[0], xy[1]])
-                self.node_id_to_idx[n.id] = self.id_counter
-                self.node_idx_to_id[self.id_counter] = n.id
-                self.idx_to_node_id[self.id_counter] = n.id
-                self.id_counter += 1
+            node_id = n.id
+
+            # check whether connect to anchor point
+            if node_id != anchor_node_id:
+                problem = ShortestPathProblem(startLocation=anchor_node_id, endTag=f"label={node_id}", cityMap=self.map)
+                usc = UniformCostSearch(verbose=0)
+                usc.solve(problem)
+                currPath = extractPath(problem.startLocation, usc)
+                if len(currPath) < 2:
+                    return
+
+            xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
+            self.nodes.append([xy[0], xy[1]])
+            self.node_id_to_idx[n.id] = self.id_counter
+            self.idx_to_node_id[self.id_counter] = n.id
+            self.id_counter += 1
 
         def way(self, w):
             node_refs = [node.ref for node in w.nodes]
@@ -145,30 +151,32 @@ def construct_graph(osmPath: str):
     mapCreator = MapCreationHandler()
     mapCreator.apply_file(osmPath, locations=True)
 
-    mapCreator.generate_anchor_points()
-    print(len(mapCreator.anchor_points_idxs))
+    if num_anchor_points > 0:
+        mapCreator.generate_anchor_points()
 
-    stanfordCalMap = createMap("./data/stanford.pbf")
-    usc = UniformCostSearch(verbose=0)
+        stanfordCalMap = createMap(osmPath)
 
-    for i in range(len(mapCreator.nodes)):
-        currStart = mapCreator.idx_to_node_id[i]
-        node_ = []
-        for idx in mapCreator.anchor_points_idxs:
-            currEnd = mapCreator.idx_to_node_id[idx]
-            problem = ShortestPathProblem(startLocation=currStart, endTag=currEnd, cityMap=stanfordCalMap)
-            usc.solve(problem)
-            currPath = extractPath(problem.startLocation, usc)
-            print("currPath", currPath)
+        for i in range(len(mapCreator.nodes)):
+            currStart = str(mapCreator.idx_to_node_id[i])
+            dist_to_anchor_points = []
+            for idx in mapCreator.anchor_points_idxs:
+                currEnd = mapCreator.idx_to_node_id[idx]
+                usc = UniformCostSearch(verbose=0)
+                problem = ShortestPathProblem(startLocation=currStart, endTag=f"label={currEnd}", cityMap=stanfordCalMap)
+                usc.solve(problem)
+                currPath = extractPath(problem.startLocation, usc)
+
+                # Here is an example
+                currPathCost = getTotalCost(currPath, stanfordCalMap)
+
+                # xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
+                dist_to_anchor_points.append(currPathCost)
             
-            # Here is an example
-            currPathCost = getTotalCost(currPath, stanfordCalMap)
-            print("currPathCost", currPathCost)
+            print(dist_to_anchor_points)
 
-            # xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
-            node_.append(currPathCost)
-        
-        mapCreator.nodes.append(node_)
+            mapCreator.nodes[i].extend(dist_to_anchor_points)
+
+        exit(0)
 
     x = torch.tensor(mapCreator.nodes, dtype=torch.float)
     edge_index = torch.tensor(mapCreator.edges, dtype=torch.long)
@@ -202,7 +210,7 @@ class PathDataset(Dataset):
                 end_idx = self.node_id_to_idx[end_id]
                 waypoints_correct = [self.node_id_to_idx[w_id] for w_id in waypoint_ids]
 
-                if len(waypoints_correct) != 6:
+                if len(waypoints_correct) < 1:
                     continue
 
             except KeyError as e:
