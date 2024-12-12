@@ -95,11 +95,10 @@ class GTN(torch.nn.Module):
         return torch.sigmoid(adj_scores)
 
 
-class NodeTransformer(nn.Module):
+class NodeOrderPredictionMLP(nn.Module):
     def __init__(self, embed_dim, hidden_dim=128, dropout=0.1):
-        super(NodeTransformer, self).__init__()
-        
-        # LayerNorm to stabilize the output
+        super(NodeOrderPredictionMLP, self).__init__()
+
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim * 4, hidden_dim),
             nn.ReLU(),
@@ -131,7 +130,7 @@ class GTTP(nn.Module):
         super(GTTP, self).__init__()
 
         self.gtn = GTN(input_dim=input_dim, hidden_dim=gtn_hidden_dim, output_dim=embed_dim, num_layers=gtn_layers, dropout=dropout, beta=True, heads=gtn_heads)
-        self.node_transformer_model = NodeTransformer(embed_dim=embed_dim)
+        self.node_transformer_model = NodeOrderPredictionMLP(embed_dim=embed_dim)
 
     def forward(self, x, edge_index, edge_attr, start_idx, end_idx, x_1, x_2):
 

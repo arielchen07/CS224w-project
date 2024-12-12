@@ -36,6 +36,7 @@ def sample_path(graph, model, start_idx, end_idx, waypoints):
     waypoint_list = waypoints.tolist()
     ordering = {waypoint: {'before': set(), 'after': set()} for waypoint in waypoint_list}
 
+    # compute pairwise ordering
     for i in range(len(waypoint_list)):
         for j in range(i + 1, len(waypoint_list)):
 
@@ -45,7 +46,8 @@ def sample_path(graph, model, start_idx, end_idx, waypoints):
                 graph.edge_attr,
                 start_idx.unsqueeze(0),
                 end_idx.unsqueeze(0),
-                waypoints[i].unsqueeze(0), waypoints[j].unsqueeze(0))
+                waypoints[i].unsqueeze(0), waypoints[j].unsqueeze(0)
+            )
 
             pred = torch.sigmoid(pred).squeeze(1).item()
 
@@ -55,11 +57,11 @@ def sample_path(graph, model, start_idx, end_idx, waypoints):
             else:
                 ordering[waypoint_list[j]]['after'].add(waypoint_list[i])
                 ordering[waypoint_list[i]]['before'].add(waypoint_list[j])
-    
-    # Greedy ordering algorithm
+
     ordered = []
     remaining = set(ordering)
     
+    # greedy sampling
     while remaining:
 
         chosen = min(
