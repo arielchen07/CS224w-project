@@ -154,8 +154,6 @@ def construct_graph(osmPath: str, num_anchor_points: int=0):
     if num_anchor_points > 0:
         mapCreator.generate_anchor_points()
 
-        stanfordCalMap = createMap(osmPath)
-
         import tqdm
         for i in tqdm.tqdm(range(len(mapCreator.nodes))):
             currStart = str(mapCreator.idx_to_node_id[i])
@@ -163,12 +161,12 @@ def construct_graph(osmPath: str, num_anchor_points: int=0):
             for idx in mapCreator.anchor_points_idxs:
                 currEnd = mapCreator.idx_to_node_id[idx]
                 usc = UniformCostSearch(verbose=0)
-                problem = ShortestPathProblem(startLocation=currStart, endTag=f"label={currEnd}", cityMap=stanfordCalMap)
+                problem = ShortestPathProblem(startLocation=currStart, endTag=f"label={currEnd}", cityMap=mapCreator.map)
                 usc.solve(problem)
                 currPath = extractPath(problem.startLocation, usc)
 
                 # Here is an example
-                currPathCost = getTotalCost(currPath, stanfordCalMap)
+                currPathCost = getTotalCost(currPath, mapCreator.map)
 
                 # xy = xy_distance(n.location.lat, n.location.lon, anchor_point[0], anchor_point[1])
                 dist_to_anchor_points.append(currPathCost)
